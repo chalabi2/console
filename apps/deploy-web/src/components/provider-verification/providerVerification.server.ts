@@ -12,6 +12,7 @@ import type {
   ProviderVerificationMock,
   SnapshotFact,
   VerificationCapability,
+  VerificationRequirement,
   VerificationTier
 } from "./providerVerification.types";
 
@@ -96,6 +97,24 @@ const leaseSchema = z.object({
     created_at: z.string()
   })
 });
+const orderSchema = z.object({
+  order: z.object({
+    spec: z.object({
+      requirements: z.object({
+        attributes: z.array(z.object({ key: z.string(), value: z.string() })).default([]),
+        verification: z
+          .object({
+            min_tier: z.string(),
+            required_capabilities: z.array(z.string()).default([]),
+            required_auditors: z.array(z.string()).default([]),
+            auditor_mode: z.string(),
+            min_auditor_count: z.number()
+          })
+          .nullish()
+      })
+    })
+  })
+});
 
 const providersResponseSchema = z.object({ providers: z.array(providerSchema) });
 const auditorsResponseSchema = z.object({ auditors: z.array(auditorSchema) });
@@ -118,6 +137,7 @@ interface ProviderResponses {
   grace: z.infer<typeof graceResponseSchema> | null;
   maintenance: z.infer<typeof maintenanceResponseSchema>;
   leases: z.infer<typeof leasesResponseSchema>;
+  order: z.infer<typeof orderSchema> | null;
 }
 
 export async function fetchProviderVerificationFeed(restApiUrl: string, now = new Date()): Promise<ProviderVerificationFeed> {
@@ -147,7 +167,15 @@ export async function fetchProviderVerificationFeed(restApiUrl: string, now = ne
           leasesResponseSchema
         )
       ]);
-      const responses: ProviderResponses = { attestations, snapshot, bond, escrows, grace, maintenance, leases };
+      const activeLease = leases.leases.find(item => item.lease.state === "active");
+      const order = activeLease
+        ? await fetchRequired(
+            baseUrl,
+            `/akash/market/v1beta5/orders/info?id.owner=${encodeURIComponent(activeLease.lease.id.owner)}&id.dseq=${activeLease.lease.id.dseq}&id.gseq=${activeLease.lease.id.gseq}&id.oseq=${activeLease.lease.id.oseq}`,
+            orderSchema
+          )
+        : null;
+      const responses: ProviderResponses = { attestations, snapshot, bond, escrows, grace, maintenance, leases, order };
 
       return mapProvider(provider, responses, auditorsByAddress, discrepancies.discrepancies, now);
     })
@@ -213,7 +241,7 @@ function mapProvider(
           }
         : { kind: "none" },
     maintenance: mapMaintenance(responses.maintenance),
-    activeLease: mapActiveLease(responses.leases),
+    activeLease: mapActiveLease(responses.leases, responses.order),
     auditEscrows: responses.escrows.escrows
       .slice()
       .sort((left, right) => Number(right.id) - Number(left.id))
@@ -222,9 +250,12 @@ function mapProvider(
   };
 }
 
-function mapActiveLease(response: ProviderResponses["leases"]): ActiveLeaseFact {
+function mapActiveLease(response: ProviderResponses["leases"], order: ProviderResponses["order"]): ActiveLeaseFact {
   const active = response.leases.find(item => item.lease.state === "active");
   if (!active) return { kind: "none" };
+  if (!order) throw new Error(`Active lease ${active.lease.id.dseq} is missing its market order`);
+
+  const attributes = new Map(order.order.spec.requirements.attributes.map(attribute => [attribute.key, attribute.value]));
 
   return {
     kind: "active",
@@ -235,7 +266,23 @@ function mapActiveLease(response: ProviderResponses["leases"]): ActiveLeaseFact 
     oseq: active.lease.id.oseq,
     bseq: active.lease.id.bseq,
     price: formatLeasePrice(active.lease.price),
-    createdAt: active.lease.created_at
+    createdAt: active.lease.created_at,
+    region: attributes.get("region") ?? null,
+    verificationRequirement: mapVerificationRequirement(order.order.spec.requirements.verification)
+  };
+}
+
+function mapVerificationRequirement(requirement: z.infer<typeof orderSchema>["order"]["spec"]["requirements"]["verification"]): VerificationRequirement {
+  if (!requirement) {
+    return { minTier: "L0", requiredCapabilities: [], requiredAuditors: [], auditorMode: "any", minAuditorCount: 0 };
+  }
+
+  return {
+    minTier: mapVerificationTier(requirement.min_tier),
+    requiredCapabilities: requirement.required_capabilities.map(mapCapability).filter((value): value is VerificationCapability => value !== null),
+    requiredAuditors: requirement.required_auditors,
+    auditorMode: requirement.auditor_mode === "auditor_selection_mode_all" ? "all" : "any",
+    minAuditorCount: requirement.min_auditor_count
   };
 }
 
@@ -328,6 +375,23 @@ function mapAttestedTier(value: string): AttestedTier {
       return "L1";
     default:
       throw new Error(`Unsupported attested tier: ${value}`);
+  }
+}
+
+function mapVerificationTier(value: string): VerificationTier {
+  switch (value) {
+    case "verification_tier_identified":
+      return "L1";
+    case "verification_tier_verified":
+      return "L2";
+    case "verification_tier_established":
+      return "L3";
+    case "verification_tier_trusted":
+      return "L4";
+    case "verification_tier_unspecified":
+      return "L0";
+    default:
+      throw new Error(`Unsupported verification tier: ${value}`);
   }
 }
 

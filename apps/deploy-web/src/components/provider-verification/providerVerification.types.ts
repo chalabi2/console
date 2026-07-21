@@ -94,6 +94,8 @@ export type ActiveLeaseFact =
       bseq: number;
       price: string;
       createdAt: string;
+      region: string | null;
+      verificationRequirement: VerificationRequirement;
     };
 
 export interface ProviderVerificationMock {

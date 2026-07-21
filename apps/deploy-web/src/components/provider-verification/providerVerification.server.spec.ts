@@ -25,7 +25,20 @@ describe(fetchProviderVerificationFeed.name, () => {
       snapshot: { kind: "current", resources: { cpu: 4, gpu: 1, memoryGi: 16, storageTi: 1 } },
       bond: { kind: "bonded", amount: "1,000 AKT", required: "25 AKT" },
       discrepancy: { kind: "grace", id: "9", preservedTier: "L3" },
-      activeLease: { kind: "active", dseq: "741923", provider, price: "520,000 uACT/block" }
+      activeLease: {
+        kind: "active",
+        dseq: "741923",
+        provider,
+        price: "520,000 uACT/block",
+        region: "us-west",
+        verificationRequirement: {
+          minTier: "L2",
+          requiredCapabilities: ["persistent_storage"],
+          requiredAuditors: [auditor],
+          auditorMode: "any",
+          minAuditorCount: 1
+        }
+      }
     });
     expect(feed.providers[0].attestations[0]).toMatchObject({
       tier: "L3",
@@ -135,6 +148,23 @@ function responseFor(path: string): unknown {
             }
           }
         ]
+      };
+    case "/akash/market/v1beta5/orders/info":
+      return {
+        order: {
+          spec: {
+            requirements: {
+              attributes: [{ key: "region", value: "us-west" }],
+              verification: {
+                min_tier: "verification_tier_verified",
+                required_capabilities: ["capability_persistent_storage"],
+                required_auditors: [auditor],
+                auditor_mode: "auditor_selection_mode_any",
+                min_auditor_count: 1
+              }
+            }
+          }
+        }
       };
     default:
       throw new Error(`Unhandled test URL: ${path}`);

@@ -175,7 +175,7 @@ export function ProviderVerificationPreview({ initialDataSource = "live" }: Prop
           </TabsContent>
           <TabsContent value="lease" className="mt-4">
             {selectedProvider.activeLease.kind === "active" ? (
-              <LeaseVerificationView provider={selectedProvider} lease={selectedProvider.activeLease} requirement={requirement} now={now} />
+              <LeaseVerificationView provider={selectedProvider} lease={selectedProvider.activeLease} now={now} />
             ) : (
               <section className="flex min-h-[280px] flex-col items-center justify-center border-y px-5 text-center">
                 <Server className="mb-4 h-6 w-6 text-muted-foreground" aria-hidden="true" />

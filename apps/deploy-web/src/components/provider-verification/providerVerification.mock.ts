@@ -127,7 +127,9 @@ export const mockProviders: ProviderVerificationMock[] = [
       oseq: 1,
       bseq: 1,
       price: "1.68672 uACT/block",
-      createdAt: "1182047"
+      createdAt: "1182047",
+      region: "us-west",
+      verificationRequirement: defaultVerificationRequirement
     },
     auditEscrows: [{ id: "38", requestedTier: "L2", fee: "50 AKT", providerDeposit: "100 AKT", status: "consumed", auditorName: northstar.name }]
   },

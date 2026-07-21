@@ -2,20 +2,20 @@ import { useState } from "react";
 import { Alert, AlertDescription, AlertTitle, Badge, CheckboxWithLabel } from "@akashnetwork/ui/components";
 import { AlertTriangle, BellRing, CalendarClock, CheckCircle2, Server, ShieldCheck } from "lucide-react";
 
-import { deriveMaintenanceStatus, deriveProviderVerification, evaluateVerificationRequirement, TIER_LABELS } from "./providerVerification";
-import type { ActiveLeaseFact, ProviderVerificationMock, VerificationRequirement } from "./providerVerification.types";
+import { CAPABILITY_LABELS, deriveMaintenanceStatus, deriveProviderVerification, evaluateVerificationRequirement, TIER_LABELS } from "./providerVerification";
+import type { ActiveLeaseFact, ProviderVerificationMock } from "./providerVerification.types";
 import { VerificationTierBadge } from "./VerificationTierBadge";
 
 interface Props {
   provider: ProviderVerificationMock;
   lease: Extract<ActiveLeaseFact, { kind: "active" }>;
-  requirement: VerificationRequirement;
   now: Date;
 }
 
-export function LeaseVerificationView({ provider, lease, requirement, now }: Props) {
+export function LeaseVerificationView({ provider, lease, now }: Props) {
   const [maintenanceAlerts, setMaintenanceAlerts] = useState(true);
   const [verificationAlerts, setVerificationAlerts] = useState(true);
+  const requirement = lease.verificationRequirement;
   const summary = deriveProviderVerification(provider, now);
   const eligibility = evaluateVerificationRequirement(provider, requirement, now);
   const maintenanceStatus = deriveMaintenanceStatus(provider.maintenance, now);
@@ -80,6 +80,13 @@ export function LeaseVerificationView({ provider, lease, requirement, now }: Pro
             <Definition label="Deployment minimum">
               {requirement.minTier === "L0" ? "None" : `${requirement.minTier} ${TIER_LABELS[requirement.minTier]}`}
             </Definition>
+            <Definition label="Region">{lease.region ?? "Any"}</Definition>
+            <Definition label="Capabilities">
+              {requirement.requiredCapabilities.length === 0
+                ? "None"
+                : requirement.requiredCapabilities.map(capability => CAPABILITY_LABELS[capability]).join(", ")}
+            </Definition>
+            <Definition label="Auditors">{requirement.minAuditorCount === 0 ? "None" : `${requirement.minAuditorCount}+ qualified`}</Definition>
             <Definition label="Snapshot">{provider.snapshot.kind === "current" ? "Current" : provider.snapshot.kind}</Definition>
             <Definition label="Policy result">
               {eligibility.kind === "eligible" ? (

@@ -5,18 +5,18 @@ This guide is the implementation path for adding provider verification to Akash 
 
 ## Product surfaces
 
-| Console surface          | Verification behavior                                                                                                                                                   |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Provider list            | Show effective tier, valid auditor count, capabilities, snapshot freshness, maintenance state, and discrepancy review state. Default browsing may require L2 or better. |
-| Deployment configuration | Add `min_tier`, capabilities, minimum auditor count, and optional named-auditor policy to the placement. New templates should recommend L3.                             |
-| Marketplace              | Hard-filter providers against placement requirements, explain exclusions, and rank only eligible providers using explicit user-selected criteria.                       |
-| Provider detail          | Show the raw attestations, latest snapshot, provider bond, audit escrow lifecycle, maintenance windows, and open discrepancy state.                                     |
-| Active lease             | Show the provider's current verification facts and provider-wide maintenance notices. Tenant notification preferences remain off-chain.                                 |
+| Console surface          | Verification behavior                                                                                                                                                       |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Provider list            | Show effective tier, valid auditor count, capabilities, snapshot freshness, maintenance state, and discrepancy review state. Default browsing may require L2 or better.     |
+| Deployment configuration | Add `min_tier`, capabilities, minimum auditor count, and optional named-auditor policy to the placement. New templates should recommend L3.                                 |
+| Marketplace              | Hard-filter providers against placement requirements, explain exclusions, and rank only eligible providers using explicit user-selected criteria.                           |
+| Provider detail          | Show the raw attestations, latest snapshot, provider bond, audit escrow lifecycle, maintenance windows, and open discrepancy state.                                         |
+| Active lease             | Show the order's placement policy beside the provider's current verification facts and provider-wide maintenance notices. Tenant notification preferences remain off-chain. |
 
 The prototype is available at `/provider-verification` and has two review modes:
 
 - **Live testnet** reads the AEP-86 testnet through a same-origin Next API route and shows current provider,
-  attestation, snapshot, bond, escrow, grace, discrepancy, maintenance, and active-lease records.
+  attestation, snapshot, bond, escrow, grace, discrepancy, maintenance, active-lease, and market-order records.
 - **Product scenarios** uses typed fixtures for states that may not exist on the testnet when a review happens, such as
   an ineligible provider, a pending discrepancy, and active-lease maintenance.
 
@@ -43,6 +43,7 @@ The chain query surface used by Console is:
 | `akash.provider.v1beta4.Query` | `ProviderMaintenance` / `ProviderMaintenances` | Current and historical provider-wide maintenance windows.                      |
 | `akash.market.v1beta5.Query`   | `ProviderLeaseStats`                           | Higher-tier lease history context when it is shown.                            |
 |                                | `Leases`                                       | Active leases for provider and deployment operational views.                   |
+|                                | `Order`                                        | Original region and verification requirements for an active lease.             |
 
 ## Verification levels
 

@@ -28,6 +28,8 @@ describe(ProviderVerificationPreview.name, () => {
     await user.click(screen.getByRole("tab", { name: /active lease/i }));
     expect(screen.getByRole("heading", { name: "Deployment #741923" })).toBeInTheDocument();
     expect(screen.getByText(/provider network maintenance scheduled/i)).toBeInTheDocument();
+    expect(screen.getByText("Persistent storage")).toBeInTheDocument();
+    expect(screen.getByText("1+ qualified")).toBeInTheDocument();
   });
 
   it("loads the live testnet feed", async () => {
