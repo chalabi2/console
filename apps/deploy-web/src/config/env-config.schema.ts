@@ -57,6 +57,7 @@ export const browserEnvSchema = z.object({
 });
 
 export const serverEnvSchema = browserEnvSchema.extend({
+  AEP86_REST_API_URL: z.string().url().optional(),
   MAINTENANCE_MODE: coercedBoolean().optional().default("false"),
   CSP_MODE: z.enum(["enforce", "report-only"]).default("report-only"),
   AUTH0_SECRET: z.string(),
