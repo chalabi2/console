@@ -4,6 +4,7 @@ import { mock } from "vitest-mock-extended";
 
 import type { UserWalletRepository } from "@src/billing/repositories";
 import type { BillingConfigService } from "@src/billing/services/billing-config/billing-config.service";
+import type { ChainErrorService } from "@src/billing/services/chain-error/chain-error.service";
 import type { LoggerService } from "@src/core/providers/logging.provider";
 import { JOB_NAME, type JobPayload, type JobQueueService } from "@src/core/services/job-queue/job-queue.service";
 import type { GetDeploymentResponse } from "@src/deployment/http-schemas/deployment.schema";
@@ -179,6 +180,43 @@ describe(CloseTrialDeploymentHandler.name, () => {
     expect(jobQueueService.enqueue).not.toHaveBeenCalled();
   });
 
+  it("logs unsettleable event and skips retry and notification when escrow cannot be settled", async () => {
+    const wallet = createUserWallet({
+      id: 123,
+      userId: "user-123",
+      address: "akash1test",
+      isTrialing: true
+    });
+
+    const closeError = new Error("Query failed with (6): rpc error: code = Unknown desc = recovered: negative decimal coin amount: -2.000000000000000000");
+
+    const { handler, jobQueueService, logger } = setup({
+      findWalletById: vi.fn().mockResolvedValue(wallet),
+      findDeployment: vi.fn().mockResolvedValue({ deployment: { state: "active" } } as GetDeploymentResponse["data"]),
+      closeDeployment: vi.fn().mockRejectedValue(closeError),
+      isUnsettleableError: true
+    });
+
+    const payload: JobPayload<CloseTrialDeployment> = {
+      walletId: wallet.id,
+      dseq: "test-dseq",
+      version: 1
+    };
+
+    await expect(handler.handle(payload)).resolves.toBeUndefined();
+
+    expect(jobQueueService.enqueue).not.toHaveBeenCalled();
+    expect(logger.error).toHaveBeenCalledWith({
+      event: "CLOSE_TRIAL_DEPLOYMENT_UNSETTLEABLE",
+      reason: "Deployment escrow cannot be settled yet; chain rejects close until it settles",
+      job: CloseTrialDeployment[JOB_NAME],
+      walletId: payload.walletId,
+      dseq: payload.dseq,
+      owner: wallet.address,
+      userId: wallet.userId
+    });
+  });
+
   it("logs error when find deployment returns an error", async () => {
     const wallet = createUserWallet({ id: 123, userId: "user-123", address: "akash1test", isTrialing: true });
 
@@ -246,6 +284,7 @@ describe(CloseTrialDeploymentHandler.name, () => {
     closeDeployment?: DeploymentWriterService["close"];
     findDeployment?: DeploymentHttpService["findByOwnerAndDseq"];
     trialDeploymentLifetimeInHours?: number;
+    isUnsettleableError?: boolean;
   }) {
     const mocks = {
       userWalletRepository: mock<UserWalletRepository>({
@@ -272,6 +311,9 @@ describe(CloseTrialDeploymentHandler.name, () => {
       }),
       billingConfig: mock<BillingConfigService>({
         get: vi.fn().mockReturnValue(input?.trialDeploymentLifetimeInHours ?? 24)
+      }),
+      chainErrorService: mock<ChainErrorService>({
+        isUnsettleableDeploymentError: vi.fn().mockReturnValue(input?.isUnsettleableError ?? false)
       })
     };
 
@@ -281,7 +323,8 @@ describe(CloseTrialDeploymentHandler.name, () => {
       mocks.jobQueueService,
       mocks.deploymentWriterService,
       mocks.deploymentService,
-      mocks.billingConfig
+      mocks.billingConfig,
+      mocks.chainErrorService
     );
 
     return { handler, ...mocks };

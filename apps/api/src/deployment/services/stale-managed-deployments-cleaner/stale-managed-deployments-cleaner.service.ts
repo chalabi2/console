@@ -5,6 +5,7 @@ import { singleton } from "tsyringe";
 import { type BillingConfig, InjectBillingConfig } from "@src/billing/providers";
 import { UserWalletOutput, UserWalletRepository } from "@src/billing/repositories";
 import { ManagedUserWalletService, RpcMessageService } from "@src/billing/services";
+import { ChainErrorService } from "@src/billing/services/chain-error/chain-error.service";
 import { ManagedSignerService } from "@src/billing/services/managed-signer/managed-signer.service";
 import { BlockRepository } from "@src/chain/repositories/block.repository";
 import { ErrorService } from "@src/core/services/error/error.service";
@@ -26,7 +27,8 @@ export class StaleManagedDeploymentsCleanerService {
     private readonly managedSignerService: ManagedSignerService,
     @InjectBillingConfig() private readonly config: BillingConfig,
     private readonly managedUserWalletService: ManagedUserWalletService,
-    private readonly errorService: ErrorService
+    private readonly errorService: ErrorService,
+    private readonly chainErrorService: ChainErrorService
   ) {}
 
   async cleanup(options: CleanUpStaleDeploymentsParams) {
@@ -75,6 +77,12 @@ export class StaleManagedDeploymentsCleanerService {
 
         await this.managedSignerService.executeDerivedTx(wallet.id, messages);
         this.logger.info({ event: "DEPLOYMENT_CLEAN_UP_SUCCESS", owner: wallet.address });
+      } else if (error instanceof Error && this.chainErrorService.isUnsettleableDeploymentError(error)) {
+        this.logger.error({
+          event: "DEPLOYMENT_CLEAN_UP_UNSETTLEABLE",
+          reason: "Deployment escrow cannot be settled yet; chain rejects close until it settles",
+          owner: wallet.address
+        });
       } else {
         throw error;
       }
