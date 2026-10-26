@@ -6,6 +6,7 @@ import {
   CredentialsSchema,
   EnvironmentVariableSchema,
   ExposeSchema,
+  refuseResourcesOutOfBounds,
   SSH_KEY_REQUIRED_MESSAGE,
   VALID_IMAGE_NAME
 } from "@src/types/sdlBuilder/sdlBuilder";
@@ -102,16 +103,43 @@ export const DeploymentUpdateFormSchema = z
 
 const SHARED_HTTP_PORT = 80;
 
+const RESOURCE_AMOUNT_MESSAGE = "Enter an amount.";
+
+const AmountSchema = z.number({ invalid_type_error: RESOURCE_AMOUNT_MESSAGE, required_error: RESOURCE_AMOUNT_MESSAGE });
+
+/** A lease resized in place is held to the bounds a new deployment is, and an emptied box to an amount rather than to what it held. */
+const ResizableComputeSchema = z
+  .object({
+    profile: z
+      .object({
+        cpu: AmountSchema,
+        ram: AmountSchema,
+        ramUnit: z.string(),
+        hasGpu: z.boolean().optional(),
+        gpu: AmountSchema.int({ message: "Enter a whole number of GPUs." }).optional(),
+        storage: z.array(z.object({ size: AmountSchema, unit: z.string() }).passthrough()).min(1)
+      })
+      .passthrough(),
+    count: AmountSchema.int({ message: "Enter a whole number of instances." })
+  })
+  .passthrough()
+  .superRefine(refuseResourcesOutOfBounds);
+
 type ExposedPort = Pick<ExposeType, "port" | "as" | "global">;
 
 /** The chain fixed each endpoint's kind at create, so a port move is judged against the ports the form was loaded with, as the api judges it. */
-export function deploymentUpdateFormSchemaFor(loadedServices: ServiceType[]) {
+export function deploymentUpdateFormSchemaFor(loadedServices: ServiceType[], { canResize = false }: { canResize?: boolean } = {}) {
   return DeploymentUpdateFormSchema.superRefine((values, context) =>
     values.services.forEach((service, serviceIndex) => {
       const loaded = loadedServices[serviceIndex];
       refusePortMovesTheApiRefuses(service.expose, loaded?.expose ?? [], ["services", serviceIndex, "expose"], context);
       if (requiresSshKey(service.image, loaded) && !service.sshPubKey?.trim()) {
         context.addIssue({ code: z.ZodIssueCode.custom, path: ["services", serviceIndex, "sshPubKey"], message: SSH_KEY_REQUIRED_MESSAGE });
+      }
+      if (canResize) {
+        ResizableComputeSchema.safeParse(service).error?.issues.forEach(issue =>
+          context.addIssue({ ...issue, path: ["services", serviceIndex, ...issue.path] })
+        );
       }
     })
   );

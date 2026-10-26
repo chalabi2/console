@@ -24,9 +24,10 @@ export interface UpdatePlacementCardProps {
   services: UpdatePlacementService[];
   locked: boolean;
   isLoadingLeaseGpus?: boolean;
+  canResize?: boolean;
 }
 
-export const UpdatePlacementCard: FC<UpdatePlacementCardProps> = ({ position, name, lease, provider, services, locked, isLoadingLeaseGpus }) => {
+export const UpdatePlacementCard: FC<UpdatePlacementCardProps> = ({ position, name, lease, provider, services, locked, isLoadingLeaseGpus, canResize }) => {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
   const region = getProviderRegion(provider);
   const providerName = provider ? providerDisplayName(provider) : undefined;
@@ -104,6 +105,7 @@ export const UpdatePlacementCard: FC<UpdatePlacementCardProps> = ({ position, na
             open={!collapsed.has(service.title)}
             onOpenChange={open => toggleService(service.title, open)}
             locked={locked}
+            canResize={canResize}
           />
         ))}
       </div>

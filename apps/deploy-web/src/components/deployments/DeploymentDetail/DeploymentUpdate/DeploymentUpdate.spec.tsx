@@ -136,6 +136,14 @@ deployment:
       count: 1
 `;
 
+const SDL_WITH_PERSISTENT_VOLUME = SINGLE_SERVICE_SDL.replace(
+  "    image: nginx:1.25\n",
+  "    image: nginx:1.25\n    params:\n      storage:\n        data:\n          mount: /var/lib/data\n"
+).replace(
+  "        storage:\n          - size: 1Gi\n",
+  "        storage:\n          - size: 1Gi\n          - name: data\n            size: 10Gi\n            attributes:\n              persistent: true\n              class: beta2\n"
+);
+
 const SDL_WITH_LEASED_IP = SINGLE_SERVICE_SDL.replace("          - global: true", "          - global: true\n            ip: edge-ip").replace(
   "profiles:",
   "endpoints:\n  edge-ip:\n    kind: ip\nprofiles:"
@@ -322,6 +330,99 @@ describe(DeploymentUpdate.name, () => {
       expect(screen.queryByRole("region", { name: "web" })).not.toBeInTheDocument();
       expect(screen.queryByRole("region", { name: "api" })).not.toBeInTheDocument();
       expect(screen.getByRole("region", { name: "worker" })).toBeInTheDocument();
+    });
+  });
+
+  describe("resizing", () => {
+    it("names hardware and instances among what an update can change", () => {
+      setup({ canResize: true });
+
+      expect(screen.getByText(/which your provider resizes in place/)).toBeInTheDocument();
+    });
+
+    it("lets a service's hardware and instances change, submitting them with the update", async () => {
+      const { submit } = setup({ canResize: true });
+      const web = serviceSection("web");
+
+      await userEvent.clear(within(web).getByLabelText("vCPU"));
+      await userEvent.type(within(web).getByLabelText("vCPU"), "2");
+      await userEvent.clear(within(web).getByLabelText("Instances"));
+      await userEvent.type(within(web).getByLabelText("Instances"), "4");
+      await userEvent.click(updateButton());
+
+      expect(within(web).getByText("Resized in place")).toBeInTheDocument();
+      expect(within(web).queryByLabelText("GPUs")).not.toBeInTheDocument();
+      const [, current] = submit.mock.calls[0] as [SdlBuilderFormValuesType, SdlBuilderFormValuesType];
+      expect(serviceIn(current, "web").profile.cpu).toBe(2);
+      expect(serviceIn(current, "web").count).toBe(4);
+    });
+
+    it("refuses an emptied amount, without submitting", async () => {
+      const { submit } = setup({ canResize: true });
+
+      await userEvent.clear(within(serviceSection("web")).getByLabelText("Memory"));
+      await userEvent.click(updateButton());
+
+      expect(await within(serviceSection("web")).findByText("Enter an amount.")).toBeInTheDocument();
+      expect(submit).not.toHaveBeenCalled();
+    });
+
+    it("holds resized hardware to the bounds a new deployment is held to", async () => {
+      const { submit } = setup({ canResize: true });
+
+      await userEvent.clear(within(serviceSection("worker")).getByLabelText("vCPU"));
+      await userEvent.type(within(serviceSection("worker")).getByLabelText("vCPU"), "0.05");
+      await userEvent.click(updateButton());
+
+      expect(await within(serviceSection("worker")).findByText("Minimum amount of CPU for a single service instance is 0.1.")).toBeInTheDocument();
+      expect(submit).not.toHaveBeenCalled();
+    });
+
+    it("keeps the instance count of a service that mounts a persistent volume", () => {
+      setup({ canResize: true, definition: { sdl: SDL_WITH_PERSISTENT_VOLUME } });
+
+      expect(within(serviceSection("web")).getByLabelText("Instances")).toBeDisabled();
+      expect(within(serviceSection("web")).getByText(/so it keeps its instance count/)).toBeInTheDocument();
+    });
+
+    it("offers to cancel a resize the provider has yet to answer, and stops once it is canceled", async () => {
+      const { cancelResize } = setup({ canResize: true, pendingResize: true });
+
+      await userEvent.click(screen.getByRole("button", { name: "Cancel resize" }));
+
+      expect(cancelResize).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole("button", { name: "Cancel resize" })).not.toBeInTheDocument();
+    });
+
+    it("offers to cancel again once another update is submitted", async () => {
+      setup({ canResize: true, pendingResize: true });
+      await userEvent.click(screen.getByRole("button", { name: "Cancel resize" }));
+
+      await userEvent.type(within(serviceSection("web")).getByLabelText("Image"), "-next");
+      await userEvent.click(updateButton());
+
+      expect(screen.getByRole("button", { name: "Cancel resize" })).toBeInTheDocument();
+    });
+
+    it("keeps offering to cancel a resize that could not be withdrawn", async () => {
+      setup({ canResize: true, pendingResize: true, isResizeWithdrawn: false });
+
+      await userEvent.click(screen.getByRole("button", { name: "Cancel resize" }));
+
+      expect(screen.getByRole("button", { name: "Cancel resize" })).toBeInTheDocument();
+    });
+
+    it("offers to cancel the resize the api says holds the update back", () => {
+      setup({ canResize: true, isHeldByPendingResize: true });
+
+      expect(screen.getByText(/Your provider has yet to accept the new hardware/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Cancel resize" })).toBeInTheDocument();
+    });
+
+    it("offers no cancel for a closed deployment", () => {
+      setup({ canResize: true, pendingResize: true, deploymentState: "closed" });
+
+      expect(screen.queryByRole("button", { name: "Cancel resize" })).not.toBeInTheDocument();
     });
   });
 
@@ -1206,14 +1307,29 @@ describe(DeploymentUpdate.name, () => {
       isLoadingLeaseGpus?: boolean;
       updatingDseqs?: string[];
       failedUpdate?: Activity["meta"];
+      canResize?: boolean;
+      pendingResize?: boolean;
+      isHeldByPendingResize?: boolean;
+      isResizeWithdrawn?: boolean;
     } = {}
   ) {
     const submit = vi.fn();
     let capturedSubmitInput: DeploymentUpdateSubmitInput | undefined;
     const useDeploymentUpdateSubmit: typeof DEPENDENCIES.useDeploymentUpdateSubmit = submitInput => {
       capturedSubmitInput = submitInput;
-      return { submit, isUpdating: input.isUpdating ?? false, sdlRefusal: input.sdlRefusal ?? null, secretsUnreadable: input.secretsUnreadable ?? false };
+      return {
+        submit,
+        isUpdating: input.isUpdating ?? false,
+        sdlRefusal: input.sdlRefusal ?? null,
+        secretsUnreadable: input.secretsUnreadable ?? false,
+        isHeldByPendingResize: input.isHeldByPendingResize ?? false
+      };
     };
+    const useFlag: typeof DEPENDENCIES.useFlag = flag => flag === "lease_resize" && !!input.canResize;
+    const usePendingDeploymentResize: typeof DEPENDENCIES.usePendingDeploymentResize = dseq =>
+      input.pendingResize ? buildActivity({ type: "deployment_update", status: "pending", meta: { dseq, resize: true } }) : undefined;
+    const cancelResize = vi.fn().mockResolvedValue(input.isResizeWithdrawn ?? true);
+    const useCancelDeploymentResize: typeof DEPENDENCIES.useCancelDeploymentResize = () => ({ cancel: cancelResize, isCanceling: false });
     const useUpdatingDeployments: typeof DEPENDENCIES.useUpdatingDeployments = () => new Set(input.updatingDseqs ?? []);
     const useFailedDeploymentUpdate: typeof DEPENDENCIES.useFailedDeploymentUpdate = dseq =>
       input.failedUpdate && buildActivity({ type: "deployment_update", status: "failed", meta: { dseq, ...input.failedUpdate } });
@@ -1249,7 +1365,16 @@ describe(DeploymentUpdate.name, () => {
         onRedeploy={onRedeploy}
         onRedeployWithNewSecrets={onRedeployWithNewSecrets}
         fallback={<RawEditor />}
-        dependencies={{ ...DEPENDENCIES, useDeploymentUpdateSubmit, useUpdatingDeployments, useFailedDeploymentUpdate, DefinitionImport }}
+        dependencies={{
+          ...DEPENDENCIES,
+          useDeploymentUpdateSubmit,
+          useUpdatingDeployments,
+          useFailedDeploymentUpdate,
+          usePendingDeploymentResize,
+          useCancelDeploymentResize,
+          useFlag,
+          DefinitionImport
+        }}
       />
     );
     const { rerender } = render(tabFor(definitionOf({})), { wrapper: TooltipProvider });
@@ -1263,6 +1388,7 @@ describe(DeploymentUpdate.name, () => {
 
     return {
       submit,
+      cancelResize,
       onUpdated,
       onRedeploy,
       onRedeployWithNewSecrets,

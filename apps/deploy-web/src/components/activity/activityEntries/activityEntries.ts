@@ -29,6 +29,8 @@ const ENTRY_WORDING = {
   lease_create: { pending: "Deploying", succeeded: "Deployed", failed: "Couldn't deploy", retry: "Choose a provider again." }
 } satisfies Record<ActionType, { pending: string; succeeded: string; failed: string; retry: string }>;
 
+const RESIZE_WAIT_DETAIL = "Waiting for the provider to accept the new hardware.";
+
 const DEPLOYMENT_ALERT_WORDING: Partial<Record<AlertType, (deployment: string) => Pick<ActivityEntry, "title" | "detail">>> = {
   deployment_closed_alert: deployment => ({ title: `${deployment} was closed` }),
   deployment_reclaim_alert: deployment => ({ title: `${deployment} is being reclaimed by the provider`, detail: "Take action before the lease is closed." })
@@ -67,6 +69,7 @@ export function activityEntryOf(activity: Activity, labelDeployment: LabelDeploy
   const deployment = labelDeployment(meta.dseq);
 
   if (initiator === "system") return { ...common, ...systemCloseOf(deployment, meta.reason) };
+  if (status === "pending" && meta.resize) return { ...common, title: `Resizing ${deployment}`, detail: RESIZE_WAIT_DETAIL };
   if (status === "pending") return { ...common, title: `${wording.pending} ${deployment}` };
   if (status === "succeeded") return { ...common, title: `${wording.succeeded} ${deployment}` };
 

@@ -548,14 +548,23 @@ export const ServiceSchema = z
       })
       .optional()
   })
-  .superRefine((data, ctx) => {
-    validateCpuAmount(data.profile.cpu, data.count, ctx);
-    validateMemoryAmount(data.profile.ram, data.profile.ramUnit, data.count, ctx);
-    validateStorageAmount(data.profile.storage[0].size, data.profile.storage[0].unit, data.count, ctx);
-    if (data.profile.hasGpu) {
-      validateGpuAmount(data.profile.gpu as number, data.count, ctx);
-    }
-  });
+  .superRefine(refuseResourcesOutOfBounds);
+
+/** A new deployment and a lease resized in place hold a service's compute to the same bounds. */
+export function refuseResourcesOutOfBounds(
+  service: {
+    profile: { cpu: number; ram: number; ramUnit: string; hasGpu?: boolean; gpu?: number; storage: Array<{ size: number; unit: string }> };
+    count: number;
+  },
+  context: z.RefinementCtx
+) {
+  validateCpuAmount(service.profile.cpu, service.count, context);
+  validateMemoryAmount(service.profile.ram, service.profile.ramUnit, service.count, context);
+  validateStorageAmount(service.profile.storage[0].size, service.profile.storage[0].unit, service.count, context);
+  if (service.profile.hasGpu) {
+    validateGpuAmount(service.profile.gpu as number, service.count, context);
+  }
+}
 
 const ImageList = z.object({
   imageList: z.array(z.string()).optional()

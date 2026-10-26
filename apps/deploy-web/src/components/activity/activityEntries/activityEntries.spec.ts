@@ -81,6 +81,23 @@ describe(activityEntriesOf.name, () => {
     expect(entry).toMatchObject({ status, title, href });
   });
 
+  it("describes a pending resize as waiting for the provider", () => {
+    const [entry] = entriesOf([buildActivity({ type: "deployment_update", status: "pending", meta: { dseq: "1234", resize: true } })]);
+
+    expect(entry).toMatchObject({
+      status: "pending",
+      title: "Resizing “web-1234”",
+      detail: "Waiting for the provider to accept the new hardware.",
+      href: "/deployments/1234"
+    });
+  });
+
+  it("describes a settled resize as the update it was", () => {
+    const [entry] = entriesOf([buildActivity({ type: "deployment_update", status: "succeeded", meta: { dseq: "1234", resize: true } })]);
+
+    expect(entry).toMatchObject({ status: "succeeded", title: "Updated “web-1234”" });
+  });
+
   it("describes a failed update with its reason, linking to the tab where the deployment can be updated again", () => {
     const [entry] = entriesOf([
       buildActivity({ type: "deployment_update", status: "failed", meta: { dseq: "1234", error: { code: "update_failed", message: "Deployment closed" } } })

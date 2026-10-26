@@ -7,6 +7,13 @@ const TRIAL_GATE_MARK = "not available on free trial";
 const ADD_CREDITS_TITLE = "Add credits to continue";
 /** The api answers this code when the chain took the update but the provider still validates manifests against the previous version. */
 const STALE_PROVIDER_VERSION_ERROR_CODE = "provider_manifest_version_stale";
+/** Each names what in the submitted resources a running lease cannot take, which the user answers by editing them rather than by retrying. */
+const RESOURCE_REFUSAL_ERROR_CODES = new Set([
+  "deployment_resources_changed",
+  "deployment_resources_unapplied",
+  "deployment_resize_refused",
+  "deployment_resize_several_groups"
+]);
 
 export const UPDATE_FAILURE_MESSAGE = "Something went wrong while updating the deployment. Please try again.";
 export const STALE_PROVIDER_VERSION_FALLBACK_MESSAGE = "Your update was accepted, but the provider has not picked it up yet. Wait a minute and try again.";
@@ -23,9 +30,19 @@ function isPaymentRequired(cause: unknown): boolean {
   return isApiError(cause) && cause.status === 402;
 }
 
-/** Mirrors signAndBroadcast, which keeps client-side refusals out of the failed_tx metric. */
+function isUnprocessable(cause: unknown): boolean {
+  return isApiError(cause) && cause.status === 422;
+}
+
+/** Mirrors signAndBroadcast, which keeps client-side refusals out of the failed_tx metric; a 422 is refused before anything is signed. */
 export function isClientRefusal(cause: unknown): boolean {
-  return isBadRequest(cause) || isPaymentRequired(cause);
+  return isBadRequest(cause) || isPaymentRequired(cause) || isUnprocessable(cause);
+}
+
+export function resourceRefusalOf(cause: unknown): string | null {
+  if (!isUnprocessable(cause) || !RESOURCE_REFUSAL_ERROR_CODES.has(extractApiErrorCode(cause) ?? "")) return null;
+
+  return extractApiErrorMessage(cause) ?? null;
 }
 
 export function sdlRefusalOf(cause: unknown): string | null {

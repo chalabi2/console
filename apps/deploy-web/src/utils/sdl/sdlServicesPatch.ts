@@ -7,6 +7,14 @@ export interface ServiceCredentialsPatch {
   password: string;
 }
 
+/** The compute of the profile a service runs on, as the api's patch route takes it to resize the service's lease in place. */
+export interface ServiceResourcesPatch {
+  cpu?: number;
+  memory?: string;
+  ephemeralStorage?: string;
+  gpu?: number;
+}
+
 export interface ServiceExposePatch {
   port?: number;
   as?: number;
@@ -22,6 +30,8 @@ export interface ServicePatch {
   credentials?: ServiceCredentialsPatch | null;
   /** Keyed by the container port the previous SDL declares, which is how the api addresses an endpoint. */
   expose?: Record<string, ServiceExposePatch>;
+  resources?: ServiceResourcesPatch;
+  count?: number;
 }
 
 /** Keyed by service name; only services with a difference appear. */
@@ -41,17 +51,35 @@ interface ExposedPorts {
   as: number;
 }
 
+interface SdlDocument {
+  services: Record<string, SdlService>;
+  profiles?: { compute?: Record<string, { resources?: SdlResources }> };
+  deployment?: Record<string, Record<string, { profile?: unknown; count?: unknown }>>;
+}
+
+interface SdlResources {
+  cpu?: { units?: unknown };
+  memory?: { size?: unknown };
+  storage?: unknown;
+  gpu?: { units?: unknown };
+}
+
+type ServiceCompute = ServiceResourcesPatch & { count?: number };
+
 /** A service present on only one side is a structural change the patch route does not take, so it is left out. */
 export function servicesPatchBetween(previousSdl: string, nextSdl: string): ServicesPatch {
-  const previousServices = servicesOf(previousSdl);
-  const nextServices = servicesOf(nextSdl);
+  const previousDocument = documentOf(previousSdl);
+  const nextDocument = documentOf(nextSdl);
   const patch: ServicesPatch = {};
 
-  Object.entries(nextServices).forEach(([name, next]) => {
-    const previous = previousServices[name];
+  Object.entries(nextDocument.services).forEach(([name, next]) => {
+    const previous = previousDocument.services[name];
     if (!previous) return;
 
-    const servicePatch = servicePatchBetween(previous, next);
+    const servicePatch = {
+      ...servicePatchBetween(previous, next),
+      ...computePatchBetween(computeOf(previousDocument, name), computeOf(nextDocument, name))
+    };
     if (Object.keys(servicePatch).length > 0) patch[name] = servicePatch;
   });
 
@@ -170,12 +198,69 @@ function credentialsOf(value: unknown): ServiceCredentialsPatch | undefined {
   return { host: String(host ?? ""), username: String(username ?? ""), password: String(password ?? "") };
 }
 
-function servicesOf(sdl: string): Record<string, SdlService> {
+/** Only a value the next SDL holds is patched, since a resize sets amounts and has no way to drop a field. */
+function computePatchBetween(previous: ServiceCompute, next: ServiceCompute): Pick<ServicePatch, "resources" | "count"> {
+  const resources: ServiceResourcesPatch = {};
+
+  if (next.cpu !== undefined && next.cpu !== previous.cpu) resources.cpu = next.cpu;
+  if (next.memory !== undefined && next.memory !== previous.memory) resources.memory = next.memory;
+  if (next.ephemeralStorage !== undefined && next.ephemeralStorage !== previous.ephemeralStorage) resources.ephemeralStorage = next.ephemeralStorage;
+  if (next.gpu !== undefined && next.gpu !== previous.gpu) resources.gpu = next.gpu;
+
+  return {
+    ...(Object.keys(resources).length > 0 ? { resources } : {}),
+    ...(next.count !== undefined && next.count !== previous.count ? { count: next.count } : {})
+  };
+}
+
+/** Read through the service's one placement, as the deployment builder writes it; a service placed more than once is no resize the form makes. */
+function computeOf(document: SdlDocument, serviceName: string): ServiceCompute {
+  const placements = Object.values(document.deployment?.[serviceName] ?? {});
+  if (placements.length !== 1) return {};
+
+  const [{ profile, count }] = placements;
+  const resources = typeof profile === "string" ? document.profiles?.compute?.[profile]?.resources : undefined;
+
+  return {
+    cpu: numberOf(resources?.cpu?.units),
+    memory: stringOf(resources?.memory?.size),
+    ephemeralStorage: stringOf(ephemeralVolumeOf(resources?.storage)?.size),
+    gpu: numberOf(resources?.gpu?.units),
+    count: numberOf(count)
+  };
+}
+
+function ephemeralVolumeOf(storage: unknown): { size?: unknown } | undefined {
+  const volumes = (Array.isArray(storage) ? storage : [storage]).filter(
+    (volume): volume is { size?: unknown; attributes?: { persistent?: unknown } } => !!volume && typeof volume === "object"
+  );
+  const ephemeral = volumes.filter(volume => volume.attributes?.persistent !== true && volume.attributes?.persistent !== "true");
+
+  return ephemeral.length === 1 ? ephemeral[0] : undefined;
+}
+
+function numberOf(value: unknown): number | undefined {
+  const number = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : NaN;
+
+  return Number.isFinite(number) ? number : undefined;
+}
+
+function stringOf(value: unknown): string | undefined {
+  return typeof value === "string" || typeof value === "number" ? String(value) : undefined;
+}
+
+function documentOf(sdl: string): SdlDocument {
   try {
-    const document = yaml.load(sdl) as { services?: unknown } | null;
+    const document = yaml.load(sdl) as Partial<SdlDocument> | null;
     const services = document?.services;
-    return services && typeof services === "object" && !Array.isArray(services) ? (services as Record<string, SdlService>) : {};
+    const isRecord = (value: unknown) => !!value && typeof value === "object" && !Array.isArray(value);
+
+    return {
+      services: isRecord(services) ? (services as Record<string, SdlService>) : {},
+      profiles: isRecord(document?.profiles) ? document?.profiles : undefined,
+      deployment: isRecord(document?.deployment) ? document?.deployment : undefined
+    };
   } catch {
-    return {};
+    return { services: {} };
   }
 }

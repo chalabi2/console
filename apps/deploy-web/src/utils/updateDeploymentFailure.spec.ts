@@ -1,7 +1,7 @@
 import { ApiError } from "@akashnetwork/openapi-sdk";
 import { describe, expect, it } from "vitest";
 
-import { addCreditsContentOf, creditsRefusalOf, isClientRefusal, isStaleProviderVersion, sdlRefusalOf } from "./updateDeploymentFailure";
+import { addCreditsContentOf, creditsRefusalOf, isClientRefusal, isStaleProviderVersion, resourceRefusalOf, sdlRefusalOf } from "./updateDeploymentFailure";
 
 const BAD_SDL = new ApiError(400, { message: "SDL is not valid YAML: line 3, column 5" }, "PATCH /v1/deployments/{dseq} → 400");
 const PATCHED_SDL_TOO_LARGE = new ApiError(
@@ -23,6 +23,11 @@ const UNKNOWN_PORT = new ApiError(400, { message: 'service "web" exposes no port
 const TRIAL_GATED = new ApiError(400, { message: "Invalid SDL: GPU deployments are not available on free trial" }, "PATCH /v1/deployments/{dseq} → 400");
 const OUT_OF_CREDITS = new ApiError(402, { message: "Insufficient balance: top up to keep deploying" }, "PATCH /v1/deployments/{dseq} → 402");
 const SERVER_FAILURE = new ApiError(500, { message: "Invalid SDL: the console could not read it" }, "PATCH /v1/deployments/{dseq} → 500");
+const RESIZE_REFUSED = new ApiError(
+  422,
+  { message: 'The SDL changes group "dcloud" in a way a running lease cannot be resized to: it adds or removes GPUs.', code: "deployment_resize_refused" },
+  "PATCH /v1/deployments/{dseq} → 422"
+);
 
 describe("sdlRefusalOf", () => {
   it("returns the message of a 400 refusing the document itself", () => {
@@ -108,9 +113,27 @@ describe("isClientRefusal", () => {
   it.each([
     { named: "a 400", cause: BAD_SDL, expected: true },
     { named: "a 402", cause: OUT_OF_CREDITS, expected: true },
+    { named: "a 422", cause: RESIZE_REFUSED, expected: true },
     { named: "a 500", cause: SERVER_FAILURE, expected: false },
     { named: "an error that is not the api's", cause: new Error("offline"), expected: false }
   ])("reads $named as $expected", ({ cause, expected }) => {
     expect(isClientRefusal(cause)).toBe(expected);
+  });
+});
+
+describe("resourceRefusalOf", () => {
+  it.each(["deployment_resources_changed", "deployment_resources_unapplied", "deployment_resize_refused", "deployment_resize_several_groups"])(
+    "returns the message of a 422 coded %s, which the user answers by editing the resources",
+    code => {
+      expect(resourceRefusalOf(new ApiError(422, { message: "The SDL changes the resources", code }, "PATCH → 422"))).toBe("The SDL changes the resources");
+    }
+  );
+
+  it.each([
+    { named: "a 422 carrying another code", cause: new ApiError(422, { message: "Unprocessable", code: "other" }, "PATCH → 422") },
+    { named: "a refusal of resources that is not a 422", cause: new ApiError(409, { message: "Held", code: "deployment_resize_refused" }, "PATCH → 409") },
+    { named: "an error that is not the api's", cause: new Error("offline") }
+  ])("returns nothing for $named", ({ cause }) => {
+    expect(resourceRefusalOf(cause)).toBeNull();
   });
 });

@@ -18,6 +18,7 @@ import {
   creditsRefusalOf,
   isClientRefusal,
   isStaleProviderVersion,
+  resourceRefusalOf,
   sdlRefusalOf,
   STALE_PROVIDER_VERSION_FALLBACK_MESSAGE,
   UPDATE_FAILURE_MESSAGE
@@ -41,6 +42,7 @@ export const DEPENDENCIES = {
 
 const HTTP_CONFLICT = 409;
 const DEFINITION_CHANGED_ERROR_CODE = "deployment_definition_changed";
+const RESIZE_PENDING_ERROR_CODE = "deployment_resize_pending";
 const STORED_SECRETS_UNREADABLE_ERROR_CODE = "stored_secrets_unreadable";
 const NOTHING_TO_UPDATE_MESSAGE = "Nothing has changed since this deployment was loaded.";
 const DEFINITION_CHANGED_MESSAGE = "This deployment was updated elsewhere, so the form now shows its current configuration. Make your changes again.";
@@ -70,9 +72,14 @@ function isDefinitionChanged(cause: unknown): boolean {
   return isApiError(cause) && cause.status === HTTP_CONFLICT && extractApiErrorCode(cause) === DEFINITION_CHANGED_ERROR_CODE;
 }
 
-/** Only the definition and stale-provider conflicts are named; every other 409 on this route answers a seal made against a retired key. */
+/** A resize waiting for its provider holds back every update, so none goes through until the provider answers or the user cancels it. */
+function isResizePending(cause: unknown): boolean {
+  return isApiError(cause) && cause.status === HTTP_CONFLICT && extractApiErrorCode(cause) === RESIZE_PENDING_ERROR_CODE;
+}
+
+/** Only the definition, stale-provider and pending-resize conflicts are named; every other 409 on this route answers a seal made against a retired key. */
 function isStaleSeal(cause: unknown): boolean {
-  return isApiError(cause) && cause.status === HTTP_CONFLICT && !isDefinitionChanged(cause) && !isStaleProviderVersion(cause);
+  return isApiError(cause) && cause.status === HTTP_CONFLICT && !isDefinitionChanged(cause) && !isStaleProviderVersion(cause) && !isResizePending(cause);
 }
 
 /** Always sends a seal, empty or not, because the api seals every variable a patch without one writes. */
@@ -92,6 +99,7 @@ export function useDeploymentUpdateSubmit(
   const [isUpdating, setIsUpdating] = useState(false);
   const [sdlRefusal, setSdlRefusal] = useState<string | null>(null);
   const [secretsUnreadable, setSecretsUnreadable] = useState(false);
+  const [isHeldByPendingResize, setIsHeldByPendingResize] = useState(false);
 
   function refetchDefinition() {
     queryClient.invalidateQueries({ queryKey: api.v1.getDeployment.getKey({ dseq }) });
@@ -192,6 +200,11 @@ export function useDeploymentUpdateSubmit(
       return;
     }
 
+    if (isResizePending(cause)) {
+      setIsHeldByPendingResize(true);
+      return;
+    }
+
     refetchBalances();
     if (isStaleProviderVersion(cause)) {
       reportUpdateTheProviderHasYetToApply(cause);
@@ -202,7 +215,7 @@ export function useDeploymentUpdateSubmit(
       analyticsService.track("failed_tx", { category: "transactions", label: "Failed transaction" });
     }
 
-    const refusal = sdlRefusalOf(cause);
+    const refusal = sdlRefusalOf(cause) ?? resourceRefusalOf(cause);
     if (refusal !== null) {
       setSdlRefusal(refusal);
       return;
@@ -250,9 +263,10 @@ export function useDeploymentUpdateSubmit(
     }
 
     setSdlRefusal(null);
+    setIsHeldByPendingResize(false);
     setIsUpdating(true);
     void sealAndPatch(update, true);
   }
 
-  return { submit, isUpdating, sdlRefusal, secretsUnreadable };
+  return { submit, isUpdating, sdlRefusal, secretsUnreadable, isHeldByPendingResize };
 }

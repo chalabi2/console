@@ -371,14 +371,94 @@ describe(deploymentUpdateFormSchemaFor.name, () => {
     expect(issuesOf(values)).toEqual([]);
   });
 
-  function setup(input: { sdl?: string; loadedServiceCount?: number; loadedPortCount?: number } = {}) {
+  describe("when the lease can be resized", () => {
+    it("lets resized hardware and instances through", () => {
+      const { values, issuesOf } = setup({ canResize: true });
+      values.services[0].profile.cpu = 2;
+      values.services[0].count = 2;
+
+      expect(issuesOf(values)).toEqual([]);
+    });
+
+    it.each([
+      { field: "cpu", path: "services.0.profile.cpu", empty: (values: DeploymentUpdateFormValues) => (values.services[0].profile.cpu = null as never) },
+      { field: "memory", path: "services.0.profile.ram", empty: (values: DeploymentUpdateFormValues) => (values.services[0].profile.ram = null as never) },
+      {
+        field: "ephemeral storage",
+        path: "services.0.profile.storage.0.size",
+        empty: (values: DeploymentUpdateFormValues) => (values.services[0].profile.storage[0].size = NaN)
+      },
+      { field: "instances", path: "services.0.count", empty: (values: DeploymentUpdateFormValues) => (values.services[0].count = null as never) }
+    ])("refuses an emptied $field box", ({ path, empty }) => {
+      const { values, issuesOf } = setup({ canResize: true });
+      empty(values);
+
+      expect(issuesOf(values)).toEqual([{ path, message: "Enter an amount." }]);
+    });
+
+    it("refuses a fractional instance count", () => {
+      const { values, issuesOf } = setup({ canResize: true });
+      values.services[0].count = 1.5;
+
+      expect(issuesOf(values)).toEqual([{ path: "services.0.count", message: "Enter a whole number of instances." }]);
+    });
+
+    it("refuses a fractional number of GPUs for a service that holds some", () => {
+      const { values, issuesOf } = setup({ canResize: true });
+      values.services[0].profile.hasGpu = true;
+      values.services[0].profile.gpu = 1.5;
+
+      expect(issuesOf(values)).toEqual([{ path: "services.0.profile.gpu", message: "Enter a whole number of GPUs." }]);
+    });
+
+    it("holds resized hardware to the bounds a new deployment is held to", () => {
+      const { values, issuesOf } = setup({ canResize: true });
+      values.services[0].profile.cpu = 0.05;
+      values.services[0].count = 1;
+
+      expect(issuesOf(values)).toEqual([{ path: "services.0.profile.cpu", message: "Minimum amount of CPU for a single service instance is 0.1." }]);
+    });
+
+    it.each([
+      {
+        bound: "memory",
+        apply: (values: DeploymentUpdateFormValues) => Object.assign(values.services[0].profile, { ram: 0.5, ramUnit: "Mi" }),
+        issue: { path: "services.0.profile.ram", message: "Minimum amount of memory for a single service instance is 1 Mi." }
+      },
+      {
+        bound: "ephemeral storage",
+        apply: (values: DeploymentUpdateFormValues) => Object.assign(values.services[0].profile.storage[0], { size: 1, unit: "Mi" }),
+        issue: { path: "services.0.profile.storage.0.size", message: "Minimum amount of storage for a single service instance is 5 Mi." }
+      },
+      {
+        bound: "GPUs",
+        apply: (values: DeploymentUpdateFormValues) => Object.assign(values.services[0].profile, { hasGpu: true, gpu: 0 }),
+        issue: { path: "services.0.profile.gpu", message: "GPU amount must be greater than 0." }
+      }
+    ])("holds resized $bound to the bounds a new deployment is held to", ({ apply, issue }) => {
+      const { values, issuesOf } = setup({ canResize: true });
+      values.services[0].count = 1;
+      apply(values);
+
+      expect(issuesOf(values)).toEqual([issue]);
+    });
+
+    it("leaves hardware the create form would refuse alone while the lease cannot be resized", () => {
+      const { values, issuesOf } = setup({ sdl: SDL_THE_CREATE_FORM_WOULD_REFUSE });
+
+      expect(values.services[0].profile.cpu).toBe(0.05);
+      expect(issuesOf(values)).toEqual([]);
+    });
+  });
+
+  function setup(input: { sdl?: string; loadedServiceCount?: number; loadedPortCount?: number; canResize?: boolean } = {}) {
     const sdl = input.sdl ?? SDL_WITH_PORTS;
     const loaded = importDeploymentState(sdl).values;
     const values: DeploymentUpdateFormValues = importDeploymentState(sdl).values;
     const loadedServices = loaded.services
       .slice(0, input.loadedServiceCount ?? loaded.services.length)
       .map(service => ({ ...service, expose: service.expose.slice(0, input.loadedPortCount ?? service.expose.length) }));
-    const schema = deploymentUpdateFormSchemaFor(loadedServices);
+    const schema = deploymentUpdateFormSchemaFor(loadedServices, { canResize: input.canResize });
     const issuesOf = (current: DeploymentUpdateFormValues) => {
       const result = schema.safeParse(current);
       return result.success ? [] : result.error.issues.map(issue => ({ path: issue.path.join("."), message: issue.message }));

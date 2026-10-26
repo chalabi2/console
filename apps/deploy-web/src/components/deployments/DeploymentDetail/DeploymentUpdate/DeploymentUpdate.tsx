@@ -8,8 +8,11 @@ import { Info } from "lucide-react";
 
 import { importDeploymentState } from "@src/components/deployments/ConfigureDeployment/importDeploymentState/importDeploymentState";
 import { isLogCollectorService } from "@src/components/sdl/LogCollectorControl/LogCollectorControl";
+import { useCancelDeploymentResize } from "@src/hooks/useCancelDeploymentResize/useCancelDeploymentResize";
 import type { DeploymentDefinition } from "@src/hooks/useDeploymentDefinition/useDeploymentDefinition";
 import { useFailedDeploymentUpdate } from "@src/hooks/useFailedDeploymentUpdate/useFailedDeploymentUpdate";
+import { useFlag } from "@src/hooks/useFlag";
+import { usePendingDeploymentResize } from "@src/hooks/usePendingDeploymentResize/usePendingDeploymentResize";
 import { useUpdatingDeployments } from "@src/hooks/useUpdatingDeployments/useUpdatingDeployments";
 import type { SdlBuilderFormValuesType } from "@src/types";
 import type { DeploymentDto, LeaseDto } from "@src/types/deployment";
@@ -23,7 +26,15 @@ import { ProtectedVariablesNotice } from "./ProtectedVariablesNotice";
 import { UpdatePlacementCard } from "./UpdatePlacementCard";
 import { useDeploymentUpdateSubmit } from "./useDeploymentUpdateSubmit";
 
-export const DEPENDENCIES = { useDeploymentUpdateSubmit, useUpdatingDeployments, useFailedDeploymentUpdate, DefinitionImport };
+export const DEPENDENCIES = {
+  useDeploymentUpdateSubmit,
+  useUpdatingDeployments,
+  useFailedDeploymentUpdate,
+  usePendingDeploymentResize,
+  useCancelDeploymentResize,
+  useFlag,
+  DefinitionImport
+};
 
 const UNAVAILABLE_NOTICE =
   "The console has no up-to-date copy of this deployment's configuration, so it can only be updated as raw SDL here. Once it holds one, this tab shows each service's settings instead.";
@@ -34,6 +45,8 @@ const SECRETS_UNREADABLE_NOTICE =
 const APPLYING_NOTICE = "An update is being applied to this deployment. You'll get a notification when it's done.";
 const NOT_APPLIED_NOTICE = "The last update didn't go through, so the deployment isn't running this configuration yet.";
 const NOT_APPLIED_FALLBACK_REASON = "Try updating it again.";
+const RESIZE_PENDING_NOTICE =
+  "Your provider has yet to accept the new hardware. Nothing else about this deployment can change until it answers or you cancel the resize.";
 
 type DeploymentUpdateSeed =
   | { kind: "resolving" }
@@ -93,7 +106,9 @@ export const DeploymentUpdate: FC<DeploymentUpdateProps> = ({
   latestSeed.current = seed;
   const heldVersion = useRef(baseline?.manifestVersion);
   heldVersion.current = baseline?.manifestVersion;
-  const resolver = useMemo(() => zodResolver(deploymentUpdateFormSchemaFor(baseline?.values.services ?? [])), [baseline]);
+  const canResize = d.useFlag("lease_resize");
+  const [hasWithdrawnResize, setHasWithdrawnResize] = useState(false);
+  const resolver = useMemo(() => zodResolver(deploymentUpdateFormSchemaFor(baseline?.values.services ?? [], { canResize })), [baseline, canResize]);
   const form = useForm<DeploymentUpdateFormValues>({
     defaultValues: baseline?.values,
     mode: "onTouched",
@@ -102,7 +117,9 @@ export const DeploymentUpdate: FC<DeploymentUpdateProps> = ({
   const { isDirty } = form.formState;
   const isApplyingInBackground = d.useUpdatingDeployments().has(deployment.dseq);
   const failedUpdate = d.useFailedDeploymentUpdate(deployment.dseq);
-  const { submit, isUpdating, sdlRefusal, secretsUnreadable } = d.useDeploymentUpdateSubmit({
+  const pendingResize = d.usePendingDeploymentResize(deployment.dseq);
+  const { cancel: cancelResize, isCanceling: isCancelingResize } = d.useCancelDeploymentResize(deployment.dseq);
+  const { submit, isUpdating, sdlRefusal, secretsUnreadable, isHeldByPendingResize } = d.useDeploymentUpdateSubmit({
     dseq: deployment.dseq,
     manifestVersion: baseline?.manifestVersion,
     onUpdated: function takeTheLandedUpdateAsTheBaseline(update) {
@@ -171,10 +188,20 @@ export const DeploymentUpdate: FC<DeploymentUpdateProps> = ({
   const placementCount = baseline.values.placements.length;
   const isBusy = isUpdating || isApplyingInBackground;
   const isRetryable = !!failedUpdate && failedUpdate.meta.manifestVersion === baseline.manifestVersion;
+  const isResizeAwaited = !isClosed && !hasWithdrawnResize && (isHeldByPendingResize || !!pendingResize);
+
+  const withdrawTheResize = async () => {
+    if (await cancelResize()) setHasWithdrawnResize(true);
+  };
+
+  const submitTheUpdate = (values: DeploymentUpdateFormValues) => {
+    setHasWithdrawnResize(false);
+    submit(baseline.values, values, { isRetry: isRetryable });
+  };
 
   return (
     <FormProvider {...form}>
-      <form className="flex flex-col gap-4" onSubmit={form.handleSubmit(values => submit(baseline.values, values, { isRetry: isRetryable }))}>
+      <form className="flex flex-col gap-4" onSubmit={form.handleSubmit(submitTheUpdate)}>
         <DeploymentTabHeader
           title="Placements"
           actions={
@@ -185,7 +212,7 @@ export const DeploymentUpdate: FC<DeploymentUpdateProps> = ({
           }
         />
 
-        <LockedFieldsNotice />
+        <LockedFieldsNotice canResize={canResize} />
 
         {!isClosed && <ProtectedVariablesNotice restoredSdl={definition.restoredSdl} locked={isBusy || isReloading} />}
 
@@ -203,6 +230,7 @@ export const DeploymentUpdate: FC<DeploymentUpdateProps> = ({
                 .map(({ service, serviceIndex }) => ({ serviceIndex, title: service.title }))}
               locked={isClosed || isBusy || isReloading}
               isLoadingLeaseGpus={isLoadingLeaseGpus}
+              canResize={canResize}
             />
           );
         })}
@@ -210,6 +238,15 @@ export const DeploymentUpdate: FC<DeploymentUpdateProps> = ({
         {isRetryable && !isClosed && (
           <Alert variant="destructive">
             {NOT_APPLIED_NOTICE} {failedUpdate.meta.error?.message ?? NOT_APPLIED_FALLBACK_REASON}
+          </Alert>
+        )}
+
+        {isResizeAwaited && (
+          <Alert className="flex flex-wrap items-center justify-between gap-3">
+            <span>{RESIZE_PENDING_NOTICE}</span>
+            <Button type="button" variant="outline" size="sm" disabled={isCancelingResize} onClick={withdrawTheResize}>
+              Cancel resize
+            </Button>
           </Alert>
         )}
 
@@ -253,14 +290,24 @@ export const DeploymentUpdate: FC<DeploymentUpdateProps> = ({
   );
 };
 
-const LockedFieldsNotice: FC = () => (
+const LockedFieldsNotice: FC<{ canResize: boolean }> = ({ canResize }) => (
   <div className="flex gap-3 rounded-xl border bg-card p-4 text-sm">
     <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-    <p className="text-muted-foreground">
-      <span className="font-medium text-foreground">Some fields are locked after deploy.</span> You can update{" "}
-      <span className="font-medium text-foreground">image</span>, <span className="font-medium text-foreground">variables & secrets</span>,{" "}
-      <span className="font-medium text-foreground">command & args</span>, <span className="font-medium text-foreground">registry credentials</span>, and
-      per-port internal/external numbers. Service name, hardware, replicas, and adding/removing exposed ports require a new deployment.
-    </p>
+    {canResize ? (
+      <p className="text-muted-foreground">
+        <span className="font-medium text-foreground">Some fields are locked after deploy.</span> You can update{" "}
+        <span className="font-medium text-foreground">image</span>, <span className="font-medium text-foreground">variables & secrets</span>,{" "}
+        <span className="font-medium text-foreground">command & args</span>, <span className="font-medium text-foreground">registry credentials</span>, per-port
+        internal/external numbers, and <span className="font-medium text-foreground">hardware & instances</span>, which your provider resizes in place. Service
+        name, adding or removing GPUs, persistent storage, and adding/removing exposed ports require a new deployment.
+      </p>
+    ) : (
+      <p className="text-muted-foreground">
+        <span className="font-medium text-foreground">Some fields are locked after deploy.</span> You can update{" "}
+        <span className="font-medium text-foreground">image</span>, <span className="font-medium text-foreground">variables & secrets</span>,{" "}
+        <span className="font-medium text-foreground">command & args</span>, <span className="font-medium text-foreground">registry credentials</span>, and
+        per-port internal/external numbers. Service name, hardware, replicas, and adding/removing exposed ports require a new deployment.
+      </p>
+    )}
   </div>
 );

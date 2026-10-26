@@ -62,6 +62,16 @@ const STALE_PROVIDER_MESSAGE =
 const PROVIDER_BEHIND = new ApiError(409, { message: STALE_PROVIDER_MESSAGE, code: "provider_manifest_version_stale" }, "PATCH /v1/deployments/{dseq} → 409");
 const STALE_SEAL = new ApiError(409, { message: "The sealing key is no longer current" }, "PATCH /v1/deployments/{dseq} → 409");
 const BAD_SDL = new ApiError(400, { message: "Invalid SDL: the image is not a valid reference" }, "PATCH /v1/deployments/{dseq} → 400");
+const RESIZE_PENDING = new ApiError(
+  409,
+  { message: "A resize of this deployment is waiting for its provider.", code: "deployment_resize_pending" },
+  "PATCH /v1/deployments/{dseq} → 409"
+);
+const RESIZE_REFUSED = new ApiError(
+  422,
+  { message: 'The SDL changes group "dcloud" in a way a running lease cannot be resized to: it adds or removes GPUs.', code: "deployment_resize_refused" },
+  "PATCH /v1/deployments/{dseq} → 422"
+);
 const OUT_OF_CREDITS = new ApiError(402, { message: "Insufficient balance: top up to keep deploying" }, "PATCH /v1/deployments/{dseq} → 402");
 const SERVER_FAILURE = new ApiError(500, { message: "The SDL recorded for this deployment cannot be read" }, "PATCH /v1/deployments/{dseq} → 500");
 const SECRETS_UNREADABLE = new ApiError(
@@ -86,6 +96,7 @@ describe(useDeploymentUpdateSubmit.name, () => {
     expect(result.current.isUpdating).toBe(false);
     expect(result.current.sdlRefusal).toBeNull();
     expect(result.current.secretsUnreadable).toBe(false);
+    expect(result.current.isHeldByPendingResize).toBe(false);
   });
 
   describe("when a secret changes", () => {
@@ -495,6 +506,39 @@ describe(useDeploymentUpdateSubmit.name, () => {
 
     await waitFor(() => expect(enqueueSnackbar).toHaveBeenCalledWith(snackbarTitled("Error"), expect.objectContaining({ variant: "error" })));
     expect(patchMutate).toHaveBeenCalledTimes(2);
+  });
+
+  it("holds the update for a resize the provider has yet to answer, without resealing or a snackbar", async () => {
+    const { result, patchMutate, sealSdlSecrets, enqueueSnackbar, seed } = setup({ patchOutcome: RESIZE_PENDING });
+
+    act(() => result.current.submit(seed, withImage(seed, "nginx:1.27")));
+
+    await waitFor(() => expect(result.current.isHeldByPendingResize).toBe(true));
+    expect(patchMutate).toHaveBeenCalledTimes(1);
+    expect(sealSdlSecrets).toHaveBeenCalledTimes(1);
+    expect(enqueueSnackbar).not.toHaveBeenCalled();
+  });
+
+  it("forgets the hold once the next update is submitted", async () => {
+    const { result, seed } = setup({ patchOutcomes: [RESIZE_PENDING, "pending"] });
+    act(() => result.current.submit(seed, withImage(seed, "nginx:1.27")));
+    await waitFor(() => expect(result.current.isHeldByPendingResize).toBe(true));
+
+    act(() => result.current.submit(seed, withImage(seed, "nginx:1.28")));
+
+    expect(result.current.isHeldByPendingResize).toBe(false);
+  });
+
+  it("hands a refusal of the resources back for the form to show, leaving it out of the failed transactions", async () => {
+    const { result, enqueueSnackbar, analyticsService, seed } = setup({ patchOutcome: RESIZE_REFUSED });
+
+    act(() => result.current.submit(seed, withImage(seed, "nginx:1.27")));
+
+    await waitFor(() =>
+      expect(result.current.sdlRefusal).toBe('The SDL changes group "dcloud" in a way a running lease cannot be resized to: it adds or removes GPUs.')
+    );
+    expect(enqueueSnackbar).not.toHaveBeenCalled();
+    expect(analyticsService.track).not.toHaveBeenCalledWith("failed_tx", expect.anything());
   });
 
   it("hands a refusal of the document itself back for the form to show", async () => {
