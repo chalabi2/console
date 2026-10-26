@@ -1,6 +1,6 @@
 import { MsgAccountDeposit, MsgCreateCertificate } from "@akashnetwork/chain-sdk/private-types/akash.v1";
 import { MsgCloseDeployment, MsgCreateDeployment, MsgUpdateDeployment } from "@akashnetwork/chain-sdk/private-types/akash.v1beta4";
-import { MsgCreateLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
+import { MsgCancelLeaseResize, MsgCreateLease, MsgResizeLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
 import type { EncodeObject } from "@cosmjs/proto-signing";
 
 export type CreateDeploymentMessage = { typeUrl: string; value: MsgCreateDeployment };
@@ -12,7 +12,14 @@ const CREATE_DEPLOYMENT_TYPE_URL = `/${MsgCreateDeployment.$type}`;
 const ACCOUNT_DEPOSIT_TYPE_URL = `/${MsgAccountDeposit.$type}`;
 
 /** Every other message a managed wallet signs; none of them moves funds into an escrow account. */
-const NON_SPENDING_TYPE_URLS: readonly string[] = [MsgCloseDeployment, MsgUpdateDeployment, MsgCreateLease, MsgCreateCertificate].map(type => `/${type.$type}`);
+const NON_SPENDING_TYPE_URLS: readonly string[] = [
+  MsgCloseDeployment,
+  MsgUpdateDeployment,
+  MsgCreateLease,
+  MsgResizeLease,
+  MsgCancelLeaseResize,
+  MsgCreateCertificate
+].map(type => `/${type.$type}`);
 
 const WHOLE_NUMBER = /^\d+$/;
 

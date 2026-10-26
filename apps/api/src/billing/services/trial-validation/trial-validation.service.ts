@@ -1,5 +1,5 @@
 import { GroupSpec, MsgCreateDeployment } from "@akashnetwork/chain-sdk/private-types/akash.v1beta4";
-import { MsgCreateLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
+import { MsgCreateLease, MsgResizeLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
 import { BidHttpService } from "@akashnetwork/http-sdk";
 import { Trace } from "@akashnetwork/instrumentation";
 import { EncodeObject } from "@cosmjs/proto-signing";
@@ -140,6 +140,8 @@ export class TrialValidationService {
   async validateDeploymentResources(messages: EncodeObject[], userWallet: UserWalletOutput) {
     if (!userWallet.isTrialing) return;
 
+    this.#refuseLeaseResize(messages, userWallet);
+
     const limits = {
       maxCpu: this.config.get("MANAGED_WALLET_TRIAL_MAX_CPU"),
       maxMemoryGi: this.config.get("MANAGED_WALLET_TRIAL_MAX_MEMORY_GI")
@@ -162,6 +164,15 @@ export class TrialValidationService {
 
       assert(false, 403, violation.message);
     }
+  }
+
+  /** A resize names only the group it changes, so the trial caps, which hold for the whole deployment, cannot be judged from it. */
+  #refuseLeaseResize(messages: EncodeObject[], userWallet: UserWalletOutput): void {
+    if (!messages.some(message => message.typeUrl === `/${MsgResizeLease.$type}`)) return;
+
+    this.logger.info({ event: "TRIAL_LEASE_RESIZE_REJECTED", owner: userWallet.address, userId: userWallet.userId });
+
+    assert(false, 402, "Resizing a deployment is not available on the free trial: Add funds to resize it");
   }
 
   /** The gate is decided for the wallet's own user, so a create sent from a background job is judged as its request was rather than as the job's user. */

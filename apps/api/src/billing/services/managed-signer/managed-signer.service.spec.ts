@@ -1,6 +1,6 @@
 import { MsgAccountDeposit, MsgCreateCertificate, Scope } from "@akashnetwork/chain-sdk/private-types/akash.v1";
 import { MsgCloseDeployment, MsgCreateDeployment } from "@akashnetwork/chain-sdk/private-types/akash.v1beta4";
-import { MsgCreateLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
+import { MsgCancelLeaseResize, MsgCreateLease, MsgResizeLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
 import type { LeaseHttpService } from "@akashnetwork/http-sdk";
 import type { MongoAbility } from "@casl/ability";
 import { createMongoAbility } from "@casl/ability";
@@ -1878,6 +1878,37 @@ describe(ManagedSignerService.name, () => {
       expect(txManagerService.signAndBroadcastWithDerivedWallet).toHaveBeenCalledWith(wallet.id, expect.anything(), expect.anything());
     });
 
+    it.each([MsgResizeLease, MsgCancelLeaseResize])("signs a $$type on a deployment the wallet owns", async type => {
+      const wallet = createOrganizationWallet({ feeAllowance: 100, deploymentAllowance: 100, activatedAt: new Date() });
+      const { service, txManagerService } = setupForTeam({ wallet, decode: vi.fn().mockReturnValue({ id: { owner: wallet.address, dseq: 1 } }) });
+
+      await service.executeDerivedEncodedTxByUserId("member-1", [encodedMessage(type.$type)]);
+
+      expect(txManagerService.signAndBroadcastWithDerivedWallet).toHaveBeenCalledWith(wallet.id, expect.anything(), expect.anything());
+    });
+
+    it.each([MsgResizeLease, MsgCancelLeaseResize])("refuses a $$type on another account's deployment, before anything is signed", async type => {
+      const { service, txManagerService } = setupForTeam({ decode: vi.fn().mockReturnValue({ id: { owner: createAkashAddress(), dseq: 1 } }) });
+
+      await expect(service.executeDerivedEncodedTxByUserId("member-1", [encodedMessage(type.$type)])).rejects.toMatchObject({
+        status: 403,
+        errorCode: "message_signer_mismatch"
+      });
+      expect(txManagerService.signAndBroadcastWithDerivedWallet).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { type: MsgResizeLease, decoded: {} },
+      { type: MsgResizeLease, decoded: undefined },
+      { type: MsgCancelLeaseResize, decoded: {} },
+      { type: MsgCancelLeaseResize, decoded: undefined }
+    ])("refuses a $type.$type that names no lease", async ({ type, decoded }) => {
+      const { service, txManagerService } = setupForTeam({ decode: vi.fn().mockReturnValue(decoded) });
+
+      await expect(service.executeDerivedEncodedTxByUserId("member-1", [encodedMessage(type.$type)])).rejects.toMatchObject({ status: 403 });
+      expect(txManagerService.signAndBroadcastWithDerivedWallet).not.toHaveBeenCalled();
+    });
+
     it("refuses a whole transaction when one of its messages acts for another account", async () => {
       const wallet = createOrganizationWallet({ feeAllowance: 100, deploymentAllowance: 100, activatedAt: new Date() });
       const decode = vi
@@ -2029,6 +2060,16 @@ describe(ManagedSignerService.name, () => {
 
       await expect(service.executeDerivedDecodedTxByUserId("member-1", [leaseMessageFor(123), deposit])).rejects.toMatchObject({ status: 403 });
       await expect(service.executeDerivedDecodedTxByUserId("member-1", [deposit])).rejects.toMatchObject({ status: 403 });
+
+      expect(deploymentSettingRepository.findFiledRowsOfWallet).toHaveBeenCalledWith(wallet, ["123"]);
+      expect(deploymentSettingRepository.findFiledRowsOfWallet).toHaveBeenCalledWith(wallet, ["456"]);
+    });
+
+    it("checks the deployment a lease resize or its cancel is for", async () => {
+      const { service, deploymentSettingRepository, wallet } = setupForTeam({ organizationContext: projectScoped });
+
+      await expect(service.executeDerivedDecodedTxByUserId("member-1", [resizeMessageFor(123)])).rejects.toMatchObject({ status: 403 });
+      await expect(service.executeDerivedDecodedTxByUserId("member-1", [cancelResizeMessageFor(456)])).rejects.toMatchObject({ status: 403 });
 
       expect(deploymentSettingRepository.findFiledRowsOfWallet).toHaveBeenCalledWith(wallet, ["123"]);
       expect(deploymentSettingRepository.findFiledRowsOfWallet).toHaveBeenCalledWith(wallet, ["456"]);
@@ -2395,6 +2436,20 @@ describe(ManagedSignerService.name, () => {
     return {
       typeUrl: `/${MsgCreateCertificate.$type}`,
       value: MsgCreateCertificate.fromPartial({ owner: "akash1test", cert: Buffer.from("cert"), pubkey: Buffer.from("pubkey") })
+    };
+  }
+
+  function resizeMessageFor(dseq: number): EncodeObject {
+    return {
+      typeUrl: MsgResizeLease.$type,
+      value: MsgResizeLease.fromPartial({ id: { dseq, owner: "akash1test", gseq: 1, oseq: 1, provider: "akash1test" } })
+    };
+  }
+
+  function cancelResizeMessageFor(dseq: number): EncodeObject {
+    return {
+      typeUrl: MsgCancelLeaseResize.$type,
+      value: MsgCancelLeaseResize.fromPartial({ id: { dseq, owner: "akash1test", gseq: 1, oseq: 1, provider: "akash1test" } })
     };
   }
 

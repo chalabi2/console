@@ -90,12 +90,26 @@ export class ChainErrorService {
     [ESCROW_SETTLEMENT_UNDERFLOW_MESSAGE]: {
       code: 400,
       message: "Deployment escrow cannot be settled yet"
+    },
+    "lease resize is disabled": {
+      code: 400,
+      message: "Resizing a lease is not enabled on this network"
+    },
+    "already has a pending lease resize": {
+      code: 409,
+      message: "A resize of this deployment is waiting for its provider. Wait for it to be answered, or cancel it, and try again."
+    },
+    "no pending lease resize": {
+      code: 404,
+      message: "This deployment has no resize waiting for its provider"
     }
   };
 
   private MESSAGE_ERROR_TITLES: Record<string, string> = {
     "/akash.deployment.v1beta4.MsgCreateDeployment": "Failed to create deployment",
     "/akash.market.v1beta5.MsgCreateLease": "Failed to create lease",
+    "/akash.market.v1beta5.MsgResizeLease": "Failed to resize lease",
+    "/akash.market.v1beta5.MsgCancelLeaseResize": "Failed to cancel lease resize",
     "/akash.cert.v1.MsgCreateCertificate": "Failed to create certificate"
   };
 

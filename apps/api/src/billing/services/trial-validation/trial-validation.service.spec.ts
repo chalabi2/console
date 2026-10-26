@@ -1,5 +1,5 @@
 import { MsgCreateDeployment } from "@akashnetwork/chain-sdk/private-types/akash.v1beta4";
-import { MsgCreateLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
+import { MsgCreateLease, MsgResizeLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
 import type { BidHttpService } from "@akashnetwork/http-sdk";
 import type { EncodeObject } from "@cosmjs/proto-signing";
 import { describe, expect, it, vi } from "vitest";
@@ -342,6 +342,35 @@ describe(TrialValidationService.name, () => {
   });
 
   describe("validateDeploymentResources", () => {
+    it("refuses a trialing wallet a lease resize with 402", async () => {
+      const wallet = createUserWallet({ isTrialing: true });
+      const { service, logger } = setupResources({ maxCpu: 4, maxMemoryGi: 16 });
+      const resize = { typeUrl: `/${MsgResizeLease.$type}`, value: MsgResizeLease.fromPartial({ id: { owner: wallet.address ?? undefined, dseq: 1 } }) };
+
+      await expect(service.validateDeploymentResources([resize], wallet)).rejects.toMatchObject({
+        status: 402,
+        message: "Resizing a deployment is not available on the free trial: Add funds to resize it"
+      });
+      expect(logger.info).toHaveBeenCalledWith({ event: "TRIAL_LEASE_RESIZE_REJECTED", owner: wallet.address, userId: wallet.userId });
+    });
+
+    it("refuses a trialing wallet a transaction that resizes a lease among other messages", async () => {
+      const wallet = createUserWallet({ isTrialing: true });
+      const { service } = setupResources({ maxCpu: 4, maxMemoryGi: 16 });
+      const lease = { typeUrl: `/${MsgCreateLease.$type}`, value: MsgCreateLease.fromPartial({}) };
+      const resize = { typeUrl: `/${MsgResizeLease.$type}`, value: MsgResizeLease.fromPartial({}) };
+
+      await expect(service.validateDeploymentResources([lease, resize], wallet)).rejects.toMatchObject({ status: 402 });
+    });
+
+    it("lets a funded wallet resize a lease", async () => {
+      const wallet = createUserWallet({ isTrialing: false });
+      const { service } = setupResources({ maxCpu: 4, maxMemoryGi: 16 });
+      const resize = { typeUrl: `/${MsgResizeLease.$type}`, value: MsgResizeLease.fromPartial({ id: { owner: wallet.address ?? undefined, dseq: 1 } }) };
+
+      await expect(service.validateDeploymentResources([resize], wallet)).resolves.toBeUndefined();
+    });
+
     it("skips validation when wallet is not trialing", async () => {
       const wallet = createUserWallet({ isTrialing: false });
       const { service } = setupResources({ maxCpu: 4, maxMemoryGi: 16 });

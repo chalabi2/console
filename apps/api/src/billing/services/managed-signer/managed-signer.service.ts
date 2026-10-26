@@ -1,6 +1,6 @@
 import { MsgAccountDeposit, MsgCreateCertificate, Scope } from "@akashnetwork/chain-sdk/private-types/akash.v1";
 import { MsgCloseDeployment, MsgCreateDeployment, MsgUpdateDeployment } from "@akashnetwork/chain-sdk/private-types/akash.v1beta4";
-import { MsgCreateLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
+import { MsgCancelLeaseResize, MsgCreateLease, MsgResizeLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
 import { LeaseHttpService } from "@akashnetwork/http-sdk";
 import { Trace, withSpan } from "@akashnetwork/instrumentation";
 import { EncodeObject, Registry } from "@cosmjs/proto-signing";
@@ -704,6 +704,8 @@ const ACCOUNTS_ACTED_FOR: Record<string, (value: MessageValue) => unknown[]> = {
   [MsgUpdateDeployment.$type]: value => [value?.id?.owner],
   [MsgCloseDeployment.$type]: value => [value?.id?.owner],
   [MsgCreateLease.$type]: value => [value?.bidId?.owner],
+  [MsgResizeLease.$type]: value => [value?.id?.owner],
+  [MsgCancelLeaseResize.$type]: value => [value?.id?.owner],
   [MsgCreateCertificate.$type]: value => [value?.owner],
   [MsgAccountDeposit.$type]: value => (value?.id?.scope === Scope.deployment ? [value?.signer, ownerOfDeploymentEscrow(value)] : [])
 };
@@ -736,6 +738,8 @@ function existingDeploymentDseqOf(message: EncodeObject): string | undefined {
   switch (typeOf(message)) {
     case MsgCloseDeployment.$type:
     case MsgUpdateDeployment.$type:
+    case MsgResizeLease.$type:
+    case MsgCancelLeaseResize.$type:
       return value?.id?.dseq?.toString();
     case MsgCreateLease.$type:
       return value?.bidId?.dseq?.toString();

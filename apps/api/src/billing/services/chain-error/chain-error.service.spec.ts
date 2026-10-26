@@ -1,7 +1,7 @@
 import type { BalanceHttpService } from "@akashnetwork/http-sdk";
 import type { EncodeObject } from "@cosmjs/proto-signing";
 import { AxiosError, AxiosHeaders } from "axios";
-import { BadGateway, BadRequest, Forbidden, InternalServerError, PaymentRequired, ServiceUnavailable } from "http-errors";
+import { BadGateway, BadRequest, Conflict, Forbidden, InternalServerError, NotFound, PaymentRequired, ServiceUnavailable } from "http-errors";
 import type { Mock } from "vitest";
 import { describe, expect, it } from "vitest";
 import type { MockProxy } from "vitest-mock-extended";
@@ -160,6 +160,39 @@ describe(ChainErrorService.name, () => {
       const appErr = await service.toAppError(err, messages);
       expect(appErr).toBeInstanceOf(BadRequest);
       expect(appErr.message).toBe("Failed to create deployment: Invalid deployment hash");
+    });
+
+    it("returns 409 naming the resize a deployment update waits for", async () => {
+      const { service } = setup();
+      const err = new Error(
+        "Query failed with (6): rpc error: code = Unknown desc = failed to execute message; message index: 0: deployment already has a pending lease resize"
+      );
+      const messages: EncodeObject[] = [{ typeUrl: "/akash.market.v1beta5.MsgResizeLease", value: {} }];
+
+      const appErr = await service.toAppError(err, messages);
+      expect(appErr).toBeInstanceOf(Conflict);
+      expect(appErr.message).toBe(
+        "Failed to resize lease: A resize of this deployment is waiting for its provider. Wait for it to be answered, or cancel it, and try again."
+      );
+    });
+
+    it("returns 404 when a resize to cancel is no longer pending", async () => {
+      const { service } = setup();
+      const err = new Error("Query failed with (6): rpc error: code = Unknown desc = failed to execute message; message index: 0: no pending lease resize");
+      const messages: EncodeObject[] = [{ typeUrl: "/akash.market.v1beta5.MsgCancelLeaseResize", value: {} }];
+
+      const appErr = await service.toAppError(err, messages);
+      expect(appErr).toBeInstanceOf(NotFound);
+      expect(appErr.message).toBe("Failed to cancel lease resize: This deployment has no resize waiting for its provider");
+    });
+
+    it("returns 400 when the network has lease resize turned off", async () => {
+      const { service } = setup();
+      const err = new Error("Query failed with (6): rpc error: code = Unknown desc = failed to execute message; message index: 0: lease resize is disabled");
+
+      const appErr = await service.toAppError(err, encodeMessages);
+      expect(appErr).toBeInstanceOf(BadRequest);
+      expect(appErr.message).toBe("Resizing a lease is not enabled on this network");
     });
 
     it("returns 400 for invalid unit price error", async () => {
