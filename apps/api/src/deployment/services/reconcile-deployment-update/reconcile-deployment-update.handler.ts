@@ -5,6 +5,7 @@ import { singleton } from "tsyringe";
 import { ActivityService } from "@src/activity/services/activity/activity.service";
 import { type JobHandler, type JobPayload, type JobPermissions, JobQueueService } from "@src/core";
 import { ApplyDeploymentUpdate } from "@src/deployment/services/apply-deployment-update/apply-deployment-update.job";
+import { AwaitLeaseResize, awaitLeaseResizeKeyFor } from "@src/deployment/services/await-lease-resize/await-lease-resize.job";
 import { notAppliedUpdateActivityOf, undeliveredUpdateActivityOf } from "@src/deployment/utils/update-activity/update-activity";
 import { RECONCILE_DEPLOYMENT_UPDATE_DELAY_IN_MIN, ReconcileDeploymentUpdate, reconcileDeploymentUpdateOptionsFor } from "./reconcile-deployment-update.job";
 
@@ -29,13 +30,18 @@ export class ReconcileDeploymentUpdateHandler implements JobHandler<ReconcileDep
   async handle({ version: _version, ...data }: JobPayload<ReconcileDeploymentUpdate>): Promise<void> {
     if (!(await this.activityService.isPending(data.activityId))) return;
 
-    if (await this.#mayUpdateStillLand(data.updateJobId)) {
+    if ((await this.#mayUpdateStillLand(data.updateJobId)) || (await this.#isAwaitingResize(data.activityId))) {
       await this.jobQueueService.enqueue(new ReconcileDeploymentUpdate(data), reconcileDeploymentUpdateOptionsFor(data.activityId, new Date()));
       return;
     }
 
     const runsTheUpdate = (await this.#chainVersionOf(data)) === data.manifestVersion;
     await this.activityService.settle(data.activityId, runsTheUpdate ? undeliveredUpdateActivityOf(data) : notAppliedUpdateActivityOf(data));
+  }
+
+  /** A resize lands once its provider answers, which the job waiting on that answer outlives. */
+  async #isAwaitingResize(activityId: string): Promise<boolean> {
+    return !!(await this.jobQueueService.findPendingJobData(AwaitLeaseResize, awaitLeaseResizeKeyFor(activityId)));
   }
 
   async #mayUpdateStillLand(updateJobId?: string): Promise<boolean> {

@@ -1,8 +1,8 @@
 import type { SDLInput, ValidationError } from "@akashnetwork/chain-sdk";
 import { yaml } from "@akashnetwork/chain-sdk";
 import { DeploymentReclamation, MsgAccountDeposit } from "@akashnetwork/chain-sdk/private-types/akash.v1";
-import { MsgCloseDeployment, MsgCreateDeployment, MsgUpdateDeployment } from "@akashnetwork/chain-sdk/private-types/akash.v1beta4";
-import type { BalanceHttpService, DeploymentHttpService } from "@akashnetwork/http-sdk";
+import { GroupSpec, MsgCloseDeployment, MsgCreateDeployment, MsgUpdateDeployment } from "@akashnetwork/chain-sdk/private-types/akash.v1beta4";
+import type { BalanceHttpService, DeploymentHttpService, DeploymentInfo } from "@akashnetwork/http-sdk";
 import type { AnyAbility } from "@casl/ability";
 import { faker } from "@faker-js/faker";
 import createError, { NotFound } from "http-errors";
@@ -24,7 +24,7 @@ import type { WalletReaderService } from "@src/billing/services/wallet-reader/wa
 import type { CreateLogger, JobQueueService, TxService } from "@src/core";
 import { JOB_NAME } from "@src/core";
 import { SDL_MAX_LENGTH } from "@src/deployment/config/sdl.config";
-import type { DeploymentResponse } from "@src/deployment/http-schemas/deployment.schema";
+import type { DeploymentResponse, PatchDeploymentResponse } from "@src/deployment/http-schemas/deployment.schema";
 import type { DeploymentSettingRepository, DeploymentSettingsOutput } from "@src/deployment/repositories/deployment-setting/deployment-setting.repository";
 import { APPLY_DEPLOYMENT_UPDATE_RETRY_OPTIONS, ApplyDeploymentUpdate } from "@src/deployment/services/apply-deployment-update/apply-deployment-update.job";
 import { CLOSE_DEPLOYMENT_RETRY_OPTIONS, CloseDeployment, closeDeploymentKeyFor } from "@src/deployment/services/close-deployment/close-deployment.job";
@@ -32,6 +32,7 @@ import { CREATE_DEPLOYMENT_RETRY_OPTIONS, CreateDeployment, createDeploymentKeyF
 import { DeleteUnbackedDeploymentSetting } from "@src/deployment/services/delete-unbacked-deployment-setting/delete-unbacked-deployment-setting.handler";
 import type { DeploymentPresenceService } from "@src/deployment/services/deployment-presence/deployment-presence.service";
 import type { LeaseGpuDetectionJobService } from "@src/deployment/services/lease-gpu-detection-job/lease-gpu-detection-job.service";
+import { type LeaseResizeService, resourcesChangedError } from "@src/deployment/services/lease-resize/lease-resize.service";
 import {
   ReconcileDeploymentClose,
   reconcileDeploymentCloseOptionsFor
@@ -180,6 +181,20 @@ ${Array.from({ length: 24 }, (_, level) => `        a${level + 1}: &a${level + 1
 );
 
 const CLIENT_SEAL = "client.seal.aaa.bbb.ccc";
+
+function computeGroupSpecJsonOf({ cpu, name = "resolved-group" }: { cpu: string; name?: string }): OnChainGroupSpec {
+  const { group_spec } = createDeploymentInfoGroupSeed({ name, cpuUnits: cpu });
+
+  return { ...group_spec, resources: group_spec.resources.map(unit => ({ ...unit, price: { denom: "uact", amount: "1000" } })) };
+}
+
+function computeGroupSpecOf(input: { cpu: string; name?: string }): GroupSpec {
+  return GroupSpec.fromJSON(computeGroupSpecJsonOf(input));
+}
+
+function groupsHolding(groupSpecs: OnChainGroupSpec[]): DeploymentInfo["groups"] {
+  return groupSpecs.map((group_spec, index) => ({ ...createDeploymentInfoGroupSeed({ gseq: index + 1 }), group_spec }));
+}
 
 function deploymentExistsError() {
   return createError(400, "Failed to create deployment: Deployment with provided dseq and owner already exists", {
@@ -2591,6 +2606,17 @@ describe(DeploymentWriterService.name, () => {
     });
   });
 
+  describe("cancelResizeByUserIdAndDseq", () => {
+    it("withdraws the deployment's pending resize with the wallet the caller acts with", async () => {
+      const { service, leaseResizeService, walletReaderService } = setup();
+
+      await service.cancelResizeByUserIdAndDseq("user-1", "100");
+
+      expect(walletReaderService.getWalletByUserId).toHaveBeenCalledWith("user-1");
+      expect(leaseResizeService.cancel).toHaveBeenCalledWith({ wallet, dseq: "100", actingUserId: "user-1" });
+    });
+  });
+
   describe("deposit", () => {
     it("deposits funds and returns updated deployment", async () => {
       const { service, rpcMessageService, signerService, deploymentReaderService } = setup();
@@ -2670,7 +2696,7 @@ describe(DeploymentWriterService.name, () => {
         ...deploymentData,
         deployment: { ...deploymentData.deployment, hash: "stale-hash" }
       };
-      deploymentReaderService.findWithGroupSpecsByWalletAndDseq.mockResolvedValue({ deployment: staleDeployment, groupSpecs: null });
+      deploymentReaderService.findWithGroupSpecsByWalletAndDseq.mockResolvedValue({ deployment: staleDeployment, groupSpecs: null, groups: null });
       const updateMsg = { typeUrl: "/update", value: MsgUpdateDeployment.fromPartial({}) };
       rpcMessageService.getUpdateDeploymentMsg.mockReturnValue(updateMsg);
 
@@ -2816,7 +2842,7 @@ describe(DeploymentWriterService.name, () => {
           { ...deploymentData.leases[0], id: { ...deploymentData.leases[0].id, provider: "provider-1" } }
         ]
       };
-      deploymentReaderService.findWithGroupSpecsByWalletAndDseq.mockResolvedValue({ deployment: deploymentWithMultipleLeases, groupSpecs: null });
+      deploymentReaderService.findWithGroupSpecsByWalletAndDseq.mockResolvedValue({ deployment: deploymentWithMultipleLeases, groupSpecs: null, groups: null });
       providerService.toProviderAuth.mockResolvedValue({ type: "jwt", token: "test-token" });
 
       await service.updateByUserIdAndDseq("user-1", "100", { sdl: "valid-sdl" });
@@ -3517,11 +3543,55 @@ describe(DeploymentWriterService.name, () => {
         expect(providerService.sendManifest).not.toHaveBeenCalled();
       });
 
+      it("leaves a patch that resizes a lease to the background, answering with its activity", async () => {
+        const { service, ability, leaseResizeService, signerService, providerService, transactionLog } = setup();
+        leaseResizeService.planFor.mockResolvedValue({ gseq: 1, groupName: "dcloud", resources: [] });
+
+        const answer = await service.patchByUserIdAndDseq("user-1", "1234", { services: { web: { image: "x" } } }, ability);
+
+        expect(answer).toEqual({ activityId: expect.any(String), manifestVersion: Buffer.from(new Uint8Array([1, 2, 3])).toString("base64") });
+        expect(transactionLog).toEqual(["begin", "write", "activity", ApplyDeploymentUpdate[JOB_NAME], ReconcileDeploymentUpdate[JOB_NAME], "commit"]);
+        expect(signerService.executeDecodedTxByUserWallet).not.toHaveBeenCalled();
+        expect(providerService.sendManifest).not.toHaveBeenCalled();
+      });
+
+      it("plans any resize from the groups the patch resolves to and the groups the chain holds", async () => {
+        const onChainGroupSpecs = [computeGroupSpecJsonOf({ cpu: "1000", name: "dcloud" })];
+        const resolvedGroupSpecs = [computeGroupSpecOf({ cpu: "2000", name: "dcloud" })];
+        const { service, ability, leaseResizeService } = setup({ onChainGroupSpecs, resolvedGroupSpecs });
+
+        await service.patchByUserIdAndDseq("user-1", "1234", { services: { web: { image: "x" } } }, ability);
+
+        expect(leaseResizeService.planFor).toHaveBeenCalledWith({
+          userId: "user-1",
+          owner: "akash1owner",
+          dseq: "1234",
+          submitted: resolvedGroupSpecs,
+          groups: [expect.objectContaining({ group_spec: onChainGroupSpecs[0] })],
+          mayResize: false
+        });
+      });
+
+      it.each([
+        { input: { services: { web: { resources: { cpu: 2 } } } }, mayResize: true },
+        { input: { services: { web: { count: 2 } } }, mayResize: true },
+        { input: { services: { web: { image: "x", resources: {} } } }, mayResize: false },
+        { input: { sealedSecrets: "sealed" }, mayResize: true },
+        { input: { services: { web: {} }, sealedSecrets: "sealed" }, mayResize: true }
+      ])("lets $input resize only when it names resources or changes no service", async ({ input, mayResize }) => {
+        const { service, ability, leaseResizeService } = setup();
+
+        await service.patchByUserIdAndDseq("user-1", "1234", input, ability).catch(() => undefined);
+
+        expect(leaseResizeService.planFor).toHaveBeenCalledWith(expect.objectContaining({ mayResize }));
+      });
+
       it("writes nothing when the stored sdl no longer declares the resources the deployment holds on chain", async () => {
-        const { service, ability, sdlSecretsService, deploymentSettingRepository, signerService, providerService } = setup({
+        const { service, ability, sdlSecretsService, deploymentSettingRepository, signerService, providerService, leaseResizeService } = setup({
           chainHash: "SOMETHING_ELSE",
           onChainGroupSpecs: [createDeploymentInfoGroupSeed({ name: "dcloud" }).group_spec]
         });
+        leaseResizeService.planFor.mockRejectedValue(resourcesChangedError("dcloud"));
 
         await expect(service.patchByUserIdAndDseq("user-1", "1234", { services: { web: { image: "x" } } }, ability)).rejects.toMatchObject({
           status: 422,
@@ -3856,7 +3926,7 @@ describe(DeploymentWriterService.name, () => {
       it("answers with the deployment the chain holds and records no manifest version", async () => {
         const { service, ability } = setup();
 
-        const result = await service.patchByUserIdAndDseq("user-1", "1234", { name: "renamed" }, ability);
+        const result = (await service.patchByUserIdAndDseq("user-1", "1234", { name: "renamed" }, ability)) as PatchDeploymentResponse["data"];
 
         expect(result.manifestVersion).toBeUndefined();
         expect(result.deployment).toEqual(expect.objectContaining({ id: { owner: "akash1owner", dseq: "1234" } }));
@@ -3865,7 +3935,7 @@ describe(DeploymentWriterService.name, () => {
       it("answers with the name it stored", async () => {
         const { service, ability } = setup();
 
-        const result = await service.patchByUserIdAndDseq("user-1", "1234", { name: "renamed" }, ability);
+        const result = (await service.patchByUserIdAndDseq("user-1", "1234", { name: "renamed" }, ability)) as PatchDeploymentResponse["data"];
 
         expect(result.name).toBe("renamed");
       });
@@ -3919,7 +3989,12 @@ describe(DeploymentWriterService.name, () => {
       it("answers with the name the write recorded", async () => {
         const { service, ability } = setup();
 
-        const result = await service.patchByUserIdAndDseq("user-1", "1234", { services: { web: { image: "nginx:1.27" } }, name: "renamed" }, ability);
+        const result = (await service.patchByUserIdAndDseq(
+          "user-1",
+          "1234",
+          { services: { web: { image: "nginx:1.27" } }, name: "renamed" },
+          ability
+        )) as PatchDeploymentResponse["data"];
 
         expect(result.name).toBe("renamed");
       });
@@ -3927,7 +4002,12 @@ describe(DeploymentWriterService.name, () => {
       it("answers with the name the row already carried when the patch names none", async () => {
         const { service, ability } = setup({ recordedName: "web" });
 
-        const result = await service.patchByUserIdAndDseq("user-1", "1234", { services: { web: { image: "nginx:1.27" } } }, ability);
+        const result = (await service.patchByUserIdAndDseq(
+          "user-1",
+          "1234",
+          { services: { web: { image: "nginx:1.27" } } },
+          ability
+        )) as PatchDeploymentResponse["data"];
 
         expect(result.name).toBe("web");
       });
@@ -4090,6 +4170,15 @@ describe(DeploymentWriterService.name, () => {
         });
       });
 
+      it("opens the activity of a patch that resizes as a pending resize, which a caller can withdraw", async () => {
+        const { service, ability, activityService, leaseResizeService } = setup();
+        leaseResizeService.planFor.mockResolvedValue({ gseq: 1, groupName: "dcloud", resources: [] });
+
+        await service.patchInBackgroundByUserIdAndDseq("user-1", "1234", { services: { web: { image: "x" } } }, ability);
+
+        expect(activityService.open).toHaveBeenCalledWith(expect.objectContaining({ meta: { dseq: "1234", manifestVersion: SAVED_VERSION, resize: true } }));
+      });
+
       it("queues the apply of the version it saved with the wallet and organization it resolved, on the key of the wallet's deployment, with retries", async () => {
         const { service, ability, jobQueueService } = setup();
 
@@ -4101,11 +4190,25 @@ describe(DeploymentWriterService.name, () => {
             dseq: "1234",
             manifestVersion: SAVED_VERSION,
             walletId: 7,
+            owner: "akash1owner",
             organizationId: "personal-organization-1",
             activityId: (accepted as { activityId: string }).activityId
           }),
           { singletonKey: "applyDeploymentUpdate.7.1234", ...APPLY_DEPLOYMENT_UPDATE_RETRY_OPTIONS }
         );
+      });
+
+      it.each([
+        { plan: { gseq: 1, groupName: "dcloud", resources: [] }, resizes: true },
+        { plan: undefined, resizes: undefined }
+      ])("marks only the apply of a patch that resizes as one (planned: $resizes)", async ({ plan, resizes }) => {
+        const { service, ability, jobQueueService, leaseResizeService } = setup();
+        leaseResizeService.planFor.mockResolvedValue(plan);
+
+        await service.patchInBackgroundByUserIdAndDseq("user-1", "1234", { services: { web: { image: "x" } } }, ability);
+
+        const [applyJob] = jobQueueService.enqueue.mock.calls[0];
+        expect(applyJob.data.resizes).toBe(resizes);
       });
 
       it("names no organization in the apply of a deployment filed before organizations", async () => {
@@ -4152,6 +4255,7 @@ describe(DeploymentWriterService.name, () => {
               dseq: "1234",
               manifestVersion: SAVED_VERSION,
               walletId: 42,
+              owner: organizationWallet.address,
               organizationId: "organization-1",
               activityId: (accepted as { activityId: string }).activityId
             }),
@@ -4295,6 +4399,7 @@ describe(DeploymentWriterService.name, () => {
       openStoredError?: Error;
       isTrialing?: boolean;
       onChainGroupSpecs?: OnChainGroupSpec[];
+      resolvedGroupSpecs?: GroupSpec[];
       replacedBy?: string;
       organizationId?: string | null;
     }) {
@@ -4340,7 +4445,12 @@ describe(DeploymentWriterService.name, () => {
       };
       deploymentReaderService.findByWalletAndDseq.mockResolvedValue(chainDeployment);
       deploymentReaderService.findByWalletAndDseqWithoutProviderStatus.mockResolvedValue(chainDeployment);
-      deploymentReaderService.findWithGroupSpecsByWalletAndDseq.mockResolvedValue({ deployment: chainDeployment, groupSpecs: input?.onChainGroupSpecs ?? [] });
+      const onChainGroupSpecs = input?.onChainGroupSpecs ?? [];
+      deploymentReaderService.findWithGroupSpecsByWalletAndDseq.mockResolvedValue({
+        deployment: chainDeployment,
+        groupSpecs: onChainGroupSpecs,
+        groups: groupsHolding(onChainGroupSpecs)
+      });
 
       const resolved: GenerateResolvedManifestResult = input?.resolveErrors
         ? { ok: false, value: input.resolveErrors }
@@ -4348,7 +4458,10 @@ describe(DeploymentWriterService.name, () => {
             ok: true,
             value: {
               manifestVersion,
-              manifest: mock<SdlManifest>({ groups: [{ name: "patched-group", services: [{ name: "web", expose: [{ global: true }] }] }], groupSpecs: [] })
+              manifest: mock<SdlManifest>({
+                groups: [{ name: "patched-group", services: [{ name: "web", expose: [{ global: true }] }] }],
+                groupSpecs: input?.resolvedGroupSpecs ?? []
+              })
             }
           };
       const sdlService = mock<SdlService>();
@@ -4392,6 +4505,7 @@ describe(DeploymentWriterService.name, () => {
       activityService.open.mockImplementation(async () => {
         transactionLog.push("activity");
       });
+      const leaseResizeService = mock<LeaseResizeService>();
       const service = new DeploymentWriterService(
         signerService,
         mock<RpcMessageService>(),
@@ -4420,7 +4534,8 @@ describe(DeploymentWriterService.name, () => {
         mock<DeploymentHttpService>(),
         mock<ChainErrorService>(),
         mock<DeploymentPresenceService>(),
-        mock<UserGpuBidCheckService>()
+        mock<UserGpuBidCheckService>(),
+        leaseResizeService
       );
 
       function sealedFor() {
@@ -4446,13 +4561,15 @@ describe(DeploymentWriterService.name, () => {
         jobQueueService,
         activityService,
         transactionLog,
-        sealedFor
+        sealedFor,
+        leaseResizeService
       };
     }
   });
 
   describe("applySavedPatch", () => {
     const savedPatch = { userId: "user-1", dseq: "100", manifestVersion: savedVersion };
+    const savedResize = { ...savedPatch, resizes: true };
 
     it("does nothing once a newer patch replaced the version it was given", async () => {
       const { service, ability, deploymentReaderService, sdlSecretsService, signerService, providerService, probeJobService, leaseGpuDetectionJobService } =
@@ -4461,8 +4578,7 @@ describe(DeploymentWriterService.name, () => {
           storedManifestVersion: "TkVXRVI="
         });
 
-      await service.applySavedPatch(savedPatch, ability);
-
+      expect(await service.applySavedPatch(savedPatch, ability)).toBe("replaced");
       expect(deploymentReaderService.findByWalletAndDseqWithoutProviderStatus).not.toHaveBeenCalled();
       expect(sdlSecretsService.openStored).not.toHaveBeenCalled();
       expect(signerService.executeDecodedTxByUserWallet).not.toHaveBeenCalled();
@@ -4535,6 +4651,93 @@ describe(DeploymentWriterService.name, () => {
 
       expect(sdlSecretsService.openStored).not.toHaveBeenCalled();
       expect(sdlService.generateResolvedManifest).toHaveBeenCalledWith(expect.objectContaining({ secrets: {} }));
+    });
+
+    it("asks the provider to resize the group whose resources the saved definition changes, pushing nothing yet", async () => {
+      const resized = computeGroupSpecOf({ cpu: "2000" });
+      const { service, ability, leaseResizeService, providerService, signerService, deploymentReaderService } = setup({
+        resolvedGroupSpecs: [resized],
+        onChainGroupSpecs: [computeGroupSpecJsonOf({ cpu: "1000" })]
+      });
+
+      const outcome = await service.applySavedPatch(savedResize, ability);
+
+      expect(outcome).toBe("awaiting-resize");
+      expect(leaseResizeService.request).toHaveBeenCalledWith({
+        wallet,
+        deployment: (await deploymentReaderService.findWithGroupSpecsByWalletAndDseq.mock.results[0].value).deployment,
+        plan: { gseq: 1, groupName: "resolved-group", resources: resized.resources },
+        manifestVersion: new Uint8Array([4, 5, 6]),
+        actingUserId: "user-1",
+        assertMayStillSign: undefined
+      });
+      expect(signerService.executeDecodedTxByUserWallet).not.toHaveBeenCalled();
+      expect(providerService.sendManifest).not.toHaveBeenCalled();
+    });
+
+    it("pushes the manifest without asking again once the provider applied the resize", async () => {
+      const { service, ability, leaseResizeService, providerService } = setup({
+        resolvedGroupSpecs: [computeGroupSpecOf({ cpu: "2000" })],
+        onChainGroupSpecs: [computeGroupSpecJsonOf({ cpu: "2000" })]
+      });
+
+      const outcome = await service.applySavedPatch(savedResize, ability);
+
+      expect(outcome).toBe("applied");
+      expect(leaseResizeService.request).not.toHaveBeenCalled();
+      expect(providerService.sendManifest).toHaveBeenCalled();
+    });
+
+    it("refuses a saved resize whose groups the deployment no longer holds", async () => {
+      const { service, ability, leaseResizeService, providerService } = setup({
+        resolvedGroupSpecs: [computeGroupSpecOf({ cpu: "1000", name: "westcoast" })],
+        onChainGroupSpecs: [computeGroupSpecJsonOf({ cpu: "1000" })]
+      });
+
+      await expect(service.applySavedPatch(savedResize, ability)).rejects.toMatchObject({ status: 422, errorCode: "deployment_resources_changed" });
+      expect(leaseResizeService.request).not.toHaveBeenCalled();
+      expect(providerService.sendManifest).not.toHaveBeenCalled();
+    });
+
+    it("applies a saved resize as an update when the chain cannot describe the deployment's groups", async () => {
+      const { service, ability, leaseResizeService, providerService, deploymentReaderService } = setup({
+        resolvedGroupSpecs: [computeGroupSpecOf({ cpu: "2000" })]
+      });
+      deploymentReaderService.findWithGroupSpecsByWalletAndDseq.mockResolvedValue({ deployment: deploymentData, groupSpecs: null, groups: null });
+
+      const outcome = await service.applySavedPatch(savedResize, ability);
+
+      expect(outcome).toBe("applied");
+      expect(leaseResizeService.request).not.toHaveBeenCalled();
+      expect(providerService.sendManifest).toHaveBeenCalled();
+    });
+
+    it("refuses a saved resize that has come to change two groups, naming the first", async () => {
+      const { service, ability, leaseResizeService } = setup({
+        resolvedGroupSpecs: [computeGroupSpecOf({ cpu: "2000", name: "dcloud" }), computeGroupSpecOf({ cpu: "2000", name: "westcoast" })],
+        onChainGroupSpecs: [computeGroupSpecJsonOf({ cpu: "1000", name: "dcloud" }), computeGroupSpecJsonOf({ cpu: "1000", name: "westcoast" })]
+      });
+
+      await expect(service.applySavedPatch(savedResize, ability)).rejects.toMatchObject({
+        status: 422,
+        errorCode: "deployment_resources_changed",
+        message: expect.stringContaining('group "dcloud"')
+      });
+      expect(leaseResizeService.request).not.toHaveBeenCalled();
+    });
+
+    it("never resizes for a saved patch that did not ask to, whatever resources the deployment holds", async () => {
+      const { service, ability, leaseResizeService, providerService, deploymentReaderService } = setup({
+        resolvedGroupSpecs: [computeGroupSpecOf({ cpu: "2000" })],
+        onChainGroupSpecs: [computeGroupSpecJsonOf({ cpu: "1000" })]
+      });
+
+      const outcome = await service.applySavedPatch(savedPatch, ability);
+
+      expect(outcome).toBe("applied");
+      expect(leaseResizeService.request).not.toHaveBeenCalled();
+      expect(deploymentReaderService.findWithGroupSpecsByWalletAndDseq).not.toHaveBeenCalled();
+      expect(providerService.sendManifest).toHaveBeenCalled();
     });
 
     it("reads the chain without asking any provider for a lease status", async () => {
@@ -5001,6 +5204,7 @@ describe(DeploymentWriterService.name, () => {
     sourceSetting?: DeploymentSettingsOutput;
     isTrialing?: boolean;
     serviceNames?: string[];
+    resolvedGroupSpecs?: GroupSpec[];
     onChainGroupSpecs?: OnChainGroupSpec[] | null;
     onChainState?: string;
     onChainHash?: string;
@@ -5079,6 +5283,7 @@ describe(DeploymentWriterService.name, () => {
     const chainErrorService = new ChainErrorService(mock<BalanceHttpService>(), billingConfig, mock<TxManagerService>());
     const deploymentPresenceService = mock<DeploymentPresenceService>();
     const userGpuBidCheckService = mock<UserGpuBidCheckService>();
+    const leaseResizeService = mock<LeaseResizeService>();
     deploymentPresenceService.isOnChain.mockResolvedValue(!!input?.onChainVersion);
     const accepted: AcceptedDeploymentCreate = {
       userId: "user-1",
@@ -5127,26 +5332,30 @@ describe(DeploymentWriterService.name, () => {
     sdlService.parse.mockReturnValue({ ok: true, value: parsedSdlValue } as any);
     sdlService.generateManifest.mockResolvedValue({ ok: true, value: manifestValue } as any);
     sdlService.generateManifestVersion.mockResolvedValue(new Uint8Array([4, 5, 6]));
-    const resolvedManifest = input?.serviceNames
+    const namedManifest = input?.serviceNames
       ? { ...resolvedManifestValue, groups: [{ name: "resolved-group", services: input.serviceNames.map(name => ({ name, expose: [{ global: true }] })) }] }
       : resolvedManifestValue;
+    const resolvedManifest = input?.resolvedGroupSpecs ? { ...namedManifest, groupSpecs: input.resolvedGroupSpecs } : namedManifest;
     sdlService.generateResolvedManifest.mockResolvedValue({
       ok: true,
       value: { manifest: resolvedManifest, manifestVersion: input?.manifestVersion ?? new Uint8Array([4, 5, 6]) }
     } as any);
     deploymentReaderService.findByWalletAndDseq.mockResolvedValue(deploymentData);
-    deploymentReaderService.findByWalletAndDseqWithoutProviderStatus.mockResolvedValue({
+    const onChainDeployment = {
       ...deploymentData,
       deployment: {
         ...deploymentData.deployment,
         state: input?.onChainState ?? deploymentData.deployment.state,
         hash: input?.onChainHash ?? deploymentData.deployment.hash
       }
-    });
+    };
+    deploymentReaderService.findByWalletAndDseqWithoutProviderStatus.mockResolvedValue(onChainDeployment);
     const unchangedGroupSpecs = [{ ...createDeploymentInfoGroupSeed({ name: "resolved-group" }).group_spec, resources: [] }];
+    const onChainGroupSpecs = input?.onChainGroupSpecs === undefined ? unchangedGroupSpecs : input.onChainGroupSpecs;
     deploymentReaderService.findWithGroupSpecsByWalletAndDseq.mockResolvedValue({
-      deployment: deploymentData,
-      groupSpecs: input?.onChainGroupSpecs === undefined ? unchangedGroupSpecs : input.onChainGroupSpecs
+      deployment: onChainDeployment,
+      groupSpecs: onChainGroupSpecs,
+      groups: onChainGroupSpecs && groupsHolding(onChainGroupSpecs)
     });
 
     const service = new DeploymentWriterService(
@@ -5177,7 +5386,8 @@ describe(DeploymentWriterService.name, () => {
       deploymentHttpService,
       chainErrorService,
       deploymentPresenceService,
-      userGpuBidCheckService
+      userGpuBidCheckService,
+      leaseResizeService
     );
 
     function storedSecrets() {
@@ -5212,6 +5422,7 @@ describe(DeploymentWriterService.name, () => {
       deploymentHttpService,
       deploymentPresenceService,
       userGpuBidCheckService,
+      leaseResizeService,
       accepted,
       ability: mock<AnyAbility>(),
       storedSecrets

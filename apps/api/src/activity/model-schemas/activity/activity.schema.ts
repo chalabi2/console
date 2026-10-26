@@ -29,6 +29,8 @@ export type ActivityMeta = {
   providers?: string[];
   batchId?: string;
   manifestVersion?: string;
+  /** Set on a pending update that waits for the deployment's provider to resize its lease. */
+  resize?: boolean;
   txHash?: string;
   error?: { code: string; message: string };
   reason?: SystemCloseReason;

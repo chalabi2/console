@@ -9,6 +9,10 @@ type SdlServiceNode = SDLInput["services"][string];
 type SdlExposeNode = NonNullable<SdlServiceNode["expose"]>[number];
 type SdlHttpOptionsNode = NonNullable<SdlExposeNode["http_options"]>;
 type SdlStorageNode = NonNullable<NonNullable<SdlServiceNode["params"]>["storage"]>[string];
+type SdlComputeResourcesNode = SDLInput["profiles"]["compute"][string]["resources"];
+type SdlComputeStorageNode = Extract<SdlComputeResourcesNode["storage"], { size: string }>;
+type SdlPlacementNode = SDLInput["deployment"][string][string];
+type PatchResources = NonNullable<PatchService["resources"]>;
 type PatchExpose = NonNullable<PatchService["expose"]>[string];
 type PatchStorage = NonNullable<PatchService["storage"]>[string];
 
@@ -78,9 +82,9 @@ function assignsStorage(patch: PatchStorage): boolean {
   return patch.mount !== undefined || patch.readOnly !== undefined;
 }
 
-/** Naming a field a patch leaves untouched is not a write, so an anchored service is only refused once the patch would actually change it. */
+/** Naming a field a patch leaves untouched is not a write, so an anchored service is only refused once the patch would actually change it; resources and count are written outside the service. */
 function assignsService(patch: PatchService): boolean {
-  const { expose, storage, env, ...fields } = patch;
+  const { expose, storage, env, resources: _resources, count: _count, ...fields } = patch;
 
   return (
     Object.values(fields).some(value => value !== undefined) ||
@@ -88,6 +92,45 @@ function assignsService(patch: PatchService): boolean {
     Object.values(expose ?? {}).some(assignsExpose) ||
     Object.values(storage ?? {}).some(assignsStorage)
   );
+}
+
+function assignsResources(resources: PatchService["resources"]): resources is PatchResources {
+  return resources !== undefined && Object.values(resources).some(value => value !== undefined);
+}
+
+export function asksToResize(patches: Record<string, PatchService>): boolean {
+  return Object.values(patches).some(({ resources, count }) => assignsResources(resources) || count !== undefined);
+}
+
+function isPersistentVolume(volume: SdlComputeStorageNode): boolean {
+  const persistent: unknown = volume.attributes?.persistent;
+
+  return persistent === true || persistent === "true";
+}
+
+/** Every node a resize could write through in a compute profile, so an anchor sharing one with another profile is caught. */
+function resourceNodesOf(resources: SdlComputeResourcesNode | undefined): object[] {
+  if (!isNode(resources)) return [];
+
+  const storage = resources.storage;
+  const volumes = Array.isArray(storage) ? storage : [storage];
+
+  return [resources, resources.cpu, resources.memory, resources.gpu, storage, ...volumes].filter(isNode);
+}
+
+function nodesReachedTwice(nodesPerOwner: object[][]): Set<object> {
+  const seen = new Set<object>();
+  const shared = new Set<object>();
+
+  for (const nodes of nodesPerOwner) {
+    for (const node of new Set(nodes)) {
+      if (seen.has(node)) shared.add(node);
+
+      seen.add(node);
+    }
+  }
+
+  return shared;
 }
 
 /** Every node a patch could write through, so sharing is judged against the object that would actually be mutated. */
@@ -142,9 +185,121 @@ export class SdlPatchService {
       }
 
       this.#applyToService(service, patch, { serviceName, shared, written });
+      this.#applyResources(document, patch, serviceName);
     }
 
     return written;
+  }
+
+  /** Writes only a compute profile and placement the service alone reaches, because one another service shares would be resized with it. */
+  #applyResources(document: SDLInput, { resources, count }: PatchService, serviceName: string): void {
+    if (!assignsResources(resources) && count === undefined) return;
+
+    const placements = this.#placementsOf(document, serviceName);
+
+    if (count !== undefined) this.#applyCount(document, placements, count, serviceName);
+
+    if (!assignsResources(resources)) return;
+
+    for (const profileName of new Set(placements.map(placement => placement.profile))) {
+      this.#applyProfileResources(document, profileName, resources, serviceName);
+    }
+  }
+
+  #placementsOf(document: SDLInput, serviceName: string): SdlPlacementNode[] {
+    const deployment = isNode(document.deployment) ? ownValue(document.deployment, serviceName) : undefined;
+    const placements = isNode(deployment) ? Object.values(deployment).filter(isNode) : [];
+
+    if (placements.length === 0) {
+      throw this.#reject(`service "${echo(serviceName)}" is not deployed in any placement`);
+    }
+
+    return placements;
+  }
+
+  #applyCount(document: SDLInput, placements: SdlPlacementNode[], count: number, serviceName: string): void {
+    if (placements.length > 1) {
+      throw this.#reject(
+        `service "${echo(serviceName)}" is deployed in ${placements.length} placements, so this patch cannot say which replica count it means`
+      );
+    }
+
+    const [placement] = placements;
+    const sharedPlacements = nodesReachedTwice(
+      Object.values(document.deployment)
+        .filter(isNode)
+        .map(byPlacement => Object.values(byPlacement).filter(isNode))
+    );
+
+    if (sharedPlacements.has(placement)) {
+      throw this.#reject(
+        `an SDL anchor makes service "${echo(serviceName)}" share its placement with another service, so patching its count would change both`
+      );
+    }
+
+    placement.count = count;
+  }
+
+  #applyProfileResources(document: SDLInput, profileName: string, patch: PatchResources, serviceName: string): void {
+    const compute = isNode(document.profiles?.compute) ? document.profiles.compute : {};
+    const profile = ownValue(compute, profileName);
+
+    if (!isNode(profile) || !isNode(profile.resources)) {
+      throw this.#reject(`service "${echo(serviceName)}" runs on compute profile "${echo(profileName)}", which the SDL does not declare`);
+    }
+
+    this.#assertProfileIsOwn(document, profileName, serviceName);
+    this.#assertProfileNotAnchored(compute, profileName, profile.resources);
+    this.#writeResources(profile.resources, patch, profileName);
+  }
+
+  #assertProfileIsOwn(document: SDLInput, profileName: string, serviceName: string): void {
+    const sharer = Object.entries(document.deployment)
+      .filter(([name]) => name !== serviceName)
+      .find(([, placements]) => isNode(placements) && Object.values(placements).some(placement => placement?.profile === profileName));
+
+    if (sharer) {
+      throw this.#reject(
+        `service "${echo(serviceName)}" shares compute profile "${echo(profileName)}" with service "${echo(sharer[0])}", so resizing it would resize both`
+      );
+    }
+  }
+
+  #assertProfileNotAnchored(compute: SDLInput["profiles"]["compute"], profileName: string, resources: SdlComputeResourcesNode): void {
+    const shared = nodesReachedTwice(Object.values(compute).map(profile => resourceNodesOf(profile?.resources)));
+
+    if (resourceNodesOf(resources).some(node => shared.has(node))) {
+      throw this.#reject(
+        `an SDL anchor makes compute profile "${echo(profileName)}" share its resources with another profile, so resizing it would change both`
+      );
+    }
+  }
+
+  /** Spelled out one field at a time so the compiler checks the SDL key each patched field lands on. */
+  #writeResources(resources: SdlComputeResourcesNode, patch: PatchResources, profileName: string): void {
+    if (patch.cpu !== undefined) resources.cpu.units = patch.cpu;
+    if (patch.memory !== undefined) resources.memory.size = patch.memory;
+    if (patch.ephemeralStorage !== undefined) this.#ephemeralVolumeOf(resources, profileName).size = patch.ephemeralStorage;
+    if (patch.gpu !== undefined) this.#writeGpuUnits(resources, patch.gpu);
+  }
+
+  #ephemeralVolumeOf(resources: SdlComputeResourcesNode, profileName: string): SdlComputeStorageNode {
+    const volumes = Array.isArray(resources.storage) ? resources.storage : [resources.storage];
+    const ephemeral = volumes.filter(volume => isNode(volume) && !isPersistentVolume(volume));
+
+    if (ephemeral.length !== 1) {
+      throw this.#reject(
+        `compute profile "${echo(profileName)}" declares ${ephemeral.length} ephemeral storage volumes, so this patch cannot say which one it means`
+      );
+    }
+
+    return ephemeral[0];
+  }
+
+  /** A profile without GPUs is left without a gpu node when asked for none, so the stored SDL never shows a field the user did not write. */
+  #writeGpuUnits(resources: SdlComputeResourcesNode, units: number): void {
+    if (resources.gpu) resources.gpu.units = units;
+    else if (units > 0) resources.gpu = { units };
   }
 
   #applyToService(service: SdlServiceNode, patch: PatchService, at: PatchTarget): void {

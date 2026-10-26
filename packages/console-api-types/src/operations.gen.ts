@@ -189,6 +189,14 @@ export const operations = {
       queryParams: ["state", "reverse", "search", "skip", "limit", "projectId"],
       hasBody: false
     },
+    deleteDeploymentResize: {
+      path: "/v1/deployments/{dseq}/resize",
+      method: "delete",
+      operationId: "deleteDeploymentResize",
+      pathParams: ["dseq"],
+      queryParams: [],
+      hasBody: false
+    },
     depositDeployment: { path: "/v1/deposit-deployment", method: "post", operationId: "depositDeployment", pathParams: [], queryParams: [], hasBody: true },
     createDeploymentDefinition: {
       path: "/v1/deployments/{dseq}/definition",

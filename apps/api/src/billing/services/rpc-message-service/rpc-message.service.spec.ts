@@ -1,4 +1,6 @@
 import { DeploymentReclamation, MsgMintACT } from "@akashnetwork/chain-sdk/private-types/akash.v1";
+import { ResourceUnit } from "@akashnetwork/chain-sdk/private-types/akash.v1beta4";
+import { MsgCancelLeaseResize, MsgResizeLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
 import { describe, expect, it } from "vitest";
 import { mock } from "vitest-mock-extended";
 
@@ -6,6 +8,8 @@ import type { BillingConfigService } from "@src/billing/services/billing-config/
 import { RpcMessageService } from "./rpc-message.service";
 
 describe(RpcMessageService.name, () => {
+  const LEASE = { owner: "akash1owner", dseq: "1234", gseq: 1, oseq: 1, provider: "akash1provider", bseq: 0 };
+
   describe("getMintACTMsg", () => {
     it("should construct a MsgMintACT message with correct fields", () => {
       const { service } = setup();
@@ -51,6 +55,32 @@ describe(RpcMessageService.name, () => {
       const msg = service.getCreateDeploymentMsg(baseOptions);
 
       expect(msg.value.reclamation).toBeUndefined();
+    });
+  });
+
+  describe("getResizeLeaseMsg", () => {
+    it("asks the lease's provider for the resource units and the manifest version they come with", () => {
+      const { service } = setup();
+      const resources = [ResourceUnit.fromPartial({ count: 2, price: { denom: "uact", amount: "30000" } })];
+      const hash = new Uint8Array([1, 2, 3]);
+
+      const msg = service.getResizeLeaseMsg({ lease: LEASE, resources, hash });
+
+      expect(msg).toEqual({
+        typeUrl: `/${MsgResizeLease.$type}`,
+        value: MsgResizeLease.fromPartial({ id: { ...LEASE, dseq: 1234n }, resources, hash })
+      });
+    });
+  });
+
+  describe("getCancelLeaseResizeMsg", () => {
+    it("withdraws the pending resize of the lease", () => {
+      const { service } = setup();
+
+      expect(service.getCancelLeaseResizeMsg(LEASE)).toEqual({
+        typeUrl: `/${MsgCancelLeaseResize.$type}`,
+        value: MsgCancelLeaseResize.fromPartial({ id: { ...LEASE, dseq: 1234n } })
+      });
     });
   });
 

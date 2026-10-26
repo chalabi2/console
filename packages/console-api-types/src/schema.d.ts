@@ -2357,6 +2357,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/deployments/{dseq}/resize": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /**
+     * Cancel a pending lease resize
+     * @description Withdraws the lease resize a patch asked the deployment's provider for, while the provider has yet to answer it. The deployment keeps the resources it runs and the patch is recorded as failed. The definition the patch saved stays recorded: a patch that changes nothing asks for the resize again, and one setting the resources back to those the deployment runs stops describing the resized one.
+     */
+    delete: operations["deleteDeploymentResize"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/deposit-deployment": {
     parameters: {
       query?: never;
@@ -10441,6 +10461,19 @@ export interface operations {
                     readOnly?: boolean;
                   };
                 };
+                /** @description Resizes the compute profile the service runs on. The profile must be the service's own, since resizing a profile another service shares would resize that service too. A patch that changes resources asks the deployment's provider to resize its lease in place, and so runs in the background. */
+                resources?: {
+                  /** @description CPU units, such as 0.5 or 2. */
+                  cpu?: number;
+                  /** @description Memory, such as 512Mi or 4Gi. */
+                  memory?: string;
+                  /** @description The size of the service's ephemeral storage, such as 10Gi. A persistent volume keeps the size it was created with. */
+                  ephemeralStorage?: string;
+                  /** @description GPU units. A service with GPUs keeps having some, and one without keeps having none. */
+                  gpu?: number;
+                };
+                /** @description Replica count of a service deployed in one placement. Changing it asks the provider to resize the lease in place, and so runs in the background. */
+                count?: number;
               };
             };
             /** @description Renames the deployment. Supplied on its own it is the only patch that touches no definition, so it works on a deployment the console holds no SDL for and sends neither a deployment update nor a manifest. */
@@ -10605,7 +10638,7 @@ export interface operations {
           };
         };
       };
-      /** @description The patch passed every check and was saved, and will be applied in the background */
+      /** @description The patch passed every check and was saved, and will be applied in the background. A patch that changes a service's `resources` or `count` is always applied this way, because the deployment's provider has to accept the resize of its lease first; it is recorded as failed if the provider declines or does not answer in time, and the deployment keeps the resources it had while the definition stays recorded. A patch that changes nothing then asks for the resize again */
       202: {
         headers: {
           [name: string]: unknown;
@@ -10666,7 +10699,7 @@ export interface operations {
           };
         };
       };
-      /** @description The deployment definition changed between this patch reading it and writing it. A patch naming no `ifManifestVersion` is guarded on the version it read, so a concurrent patch produces this too. Re-sending the identical patch is not a conflict, because the version it recomputes is the one the row already holds. `code` is `deployment_definition_changed` for this case, which a reload of the definition cures; a 409 without it answers a seal made against a retired key, which a fresh seal cures. With `code` `deployment_record_unfiled`, the member who filed this team deployment deleted their account and the caller holds a record of the same deployment id in another organization. With `code` `stored_secrets_unavailable`, the stored secrets were sealed for a member who deleted their account, so update the deployment with its full SDL and secret values */
+      /** @description The deployment definition changed between this patch reading it and writing it. A patch naming no `ifManifestVersion` is guarded on the version it read, so a concurrent patch produces this too. Re-sending the identical patch is not a conflict, because the version it recomputes is the one the row already holds. `code` is `deployment_definition_changed` for this case, which a reload of the definition cures; a 409 without it answers a seal made against a retired key, which a fresh seal cures. `code` is `deployment_resize_pending` while a resize of the deployment waits for its provider, since nothing about the deployment can change until the provider answers or the resize is canceled. With `code` `deployment_record_unfiled`, the member who filed this team deployment deleted their account and the caller holds a record of the same deployment id in another organization. With `code` `stored_secrets_unavailable`, the stored secrets were sealed for a member who deleted their account, so update the deployment with its full SDL and secret values */
       409: {
         headers: {
           [name: string]: unknown;
@@ -10680,7 +10713,7 @@ export interface operations {
           };
         };
       };
-      /** @description The SDL recorded for this deployment no longer declares the groups, compute resources, replica counts or globally exposed ports the deployment holds, as a full-SDL update can leave it: `code` is `deployment_resources_changed`, and nothing is recorded, no deployment update is sent and no provider is contacted */
+      /** @description The patched SDL changes resources the deployment cannot change in place, and nothing is recorded, no deployment update is sent and no provider is contacted. `code` is `deployment_resources_changed` when it changes the deployment's groups, or changes resources where resizing a lease is unavailable; `deployment_resources_unapplied` when it changes other fields while the definition recorded for this deployment asks for other resources than the deployment holds, as a resize that did not go through leaves it, which a patch that changes nothing or names the resources resolves; `deployment_resize_several_groups` when it changes the resources of more than one group, which resize one at a time; and `deployment_resize_refused` when it changes what no running lease can be resized to, such as GPUs added or removed, the size of persistent storage or a globally exposed port */
       422: {
         headers: {
           [name: string]: unknown;
@@ -11180,6 +11213,66 @@ export interface operations {
       };
       /** @description The key management service is temporarily unreachable, or, with `code` `deposit_price_unavailable`, the deposit could not be priced against its project's budget. Both are transient and worth retrying, unlike the 409 above */
       503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            error: string;
+            message: string;
+            code: string;
+            type: string;
+          };
+        };
+      };
+    };
+  };
+  deleteDeploymentResize: {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description Id or slug of the organization the request runs in. Defaults to the organization used last, or the caller's personal one. Answers 403 `organization_forbidden` when the caller is not a member, and 400 `organization_mismatch` when it names another organization than the API key's. */
+        "x-organization-id"?: components["parameters"]["OrganizationIdHeader"];
+        /** @description Id of a project of the active organization to limit the request to. Answers 403 `project_forbidden` when the caller cannot reach the project, or the API key is limited to another one. */
+        "x-project-id"?: components["parameters"]["ProjectIdHeader"];
+      };
+      path: {
+        /** @description Deployment sequence number */
+        dseq: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The resize was withdrawn */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: {
+              success: boolean;
+            };
+          };
+        };
+      };
+      /** @description With `code` `project_forbidden`, the deployment is filed in a project the caller cannot change */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            error: string;
+            message: string;
+            code: string;
+            type: string;
+          };
+        };
+      };
+      /** @description No resize of this deployment waits for its provider */
+      404: {
         headers: {
           [name: string]: unknown;
         };
@@ -13051,6 +13144,8 @@ export interface operations {
                   batchId?: string;
                   /** @description The base64 manifest version an update saved. */
                   manifestVersion?: string;
+                  /** @description Set on a pending update that waits for the deployment's provider to resize its lease, which `DELETE /v1/deployments/{dseq}/resize` withdraws. */
+                  resize?: boolean;
                   /** @description Reference of a pending action whose outcome is still being confirmed. */
                   txHash?: string;
                   /** @description Why a failed action did not go through. */
@@ -13172,6 +13267,8 @@ export interface operations {
                 batchId?: string;
                 /** @description The base64 manifest version an update saved. */
                 manifestVersion?: string;
+                /** @description Set on a pending update that waits for the deployment's provider to resize its lease, which `DELETE /v1/deployments/{dseq}/resize` withdraws. */
+                resize?: boolean;
                 /** @description Reference of a pending action whose outcome is still being confirmed. */
                 txHash?: string;
                 /** @description Why a failed action did not go through. */

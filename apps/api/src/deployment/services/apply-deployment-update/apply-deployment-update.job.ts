@@ -15,6 +15,10 @@ export class ApplyDeploymentUpdate implements Job {
       manifestVersion: string;
       /** The wallet the request resolved, which a job cannot find again from the member once it belongs to an organization. */
       walletId: number;
+      /** The wallet's address, which waiting on a resize reads the chain by; absent from jobs queued before resizes, which never wait on one. */
+      owner?: string;
+      /** Set when the patch asked to resize, the only update an apply resizes a lease for. */
+      resizes?: boolean;
       /** Absent for a deployment filed before organizations, whose row only its user reaches. */
       organizationId?: string;
       activityId: string;

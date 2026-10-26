@@ -366,9 +366,11 @@ describe(DeploymentWriterService.name, () => {
       const manifestVersion = await savedVersionOf(SAVED_SDL, secrets);
       await seedDeploymentSetting({ userId: filer.id, ...filedIn, dseq, sdl: SAVED_SDL, manifestVersion, sealedSecrets, autoTopUpEnabled: false });
 
-      vi.spyOn(container.resolve(DeploymentReaderService), "findByWalletAndDseqWithoutProviderStatus").mockResolvedValue(
-        chainHoldingAnOlderVersion(wallet.address as string, dseq)
-      );
+      vi.spyOn(container.resolve(DeploymentReaderService), "findWithGroupSpecsByWalletAndDseq").mockResolvedValue({
+        deployment: chainHoldingAnOlderVersion(wallet.address as string, dseq),
+        groupSpecs: null,
+        groups: null
+      });
       const broadcast = vi
         .spyOn(container.resolve(ManagedSignerService), "executeDecodedTxByUserWallet")
         .mockResolvedValue({ code: 0, hash: "tx-hash", transactionHash: "tx-hash", rawLog: "" });
@@ -519,7 +521,8 @@ describe(DeploymentWriterService.name, () => {
 
       vi.spyOn(container.resolve(DeploymentReaderService), "findWithGroupSpecsByWalletAndDseq").mockResolvedValue({
         deployment: chainHoldingAnOlderVersion(address, dseq),
-        groupSpecs: null
+        groupSpecs: null,
+        groups: null
       });
       vi.spyOn(writer, "applySavedPatch").mockRejectedValue(new Error("applied by no worker in this test"));
 

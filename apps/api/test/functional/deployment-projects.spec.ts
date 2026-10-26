@@ -602,7 +602,7 @@ describe("Deployment projects", () => {
         leases: [{ id: { provider: "akash1provider" } }]
       });
       const deploymentReader = container.resolve(DeploymentReaderService);
-      vi.spyOn(deploymentReader, "findWithGroupSpecsByWalletAndDseq").mockResolvedValue({ deployment: chain, groupSpecs: null });
+      vi.spyOn(deploymentReader, "findWithGroupSpecsByWalletAndDseq").mockResolvedValue({ deployment: chain, groupSpecs: null, groups: null });
       vi.spyOn(deploymentReader, "findByWalletAndDseq").mockResolvedValue(chain);
       const broadcast = vi
         .spyOn(signer, "executeDecodedTxByUserWallet")

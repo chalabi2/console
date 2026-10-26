@@ -297,6 +297,10 @@ describe("PATCH /v1/deployments/{dseq}?async=true", () => {
       .persist()
       .get(`/akash/market/${marketVersion}/leases/list?filters.owner=${address}&filters.dseq=${DSEQ}&pagination.limit=1000`)
       .reply(200, { leases });
+    nock(restUrl)
+      .persist()
+      .get(`/akash/market/${marketVersion}/params`)
+      .reply(200, { params: { lease_resize_enabled: false } });
 
     await createDeployment({ owner: address, dseq: DSEQ });
   }
@@ -401,7 +405,7 @@ describe("PATCH /v1/deployments/{dseq}?async=true", () => {
 
     const chain = teamChainDeployment(teamWallet.address as string, dseq);
     const deploymentReader = container.resolve(DeploymentReaderService);
-    vi.spyOn(deploymentReader, "findWithGroupSpecsByWalletAndDseq").mockResolvedValue({ deployment: chain, groupSpecs: null });
+    vi.spyOn(deploymentReader, "findWithGroupSpecsByWalletAndDseq").mockResolvedValue({ deployment: chain, groupSpecs: null, groups: null });
     vi.spyOn(deploymentReader, "findByWalletAndDseqWithoutProviderStatus").mockResolvedValue(chain);
     const broadcast = vi
       .spyOn(signerService, "executeDecodedTxByUserWallet")

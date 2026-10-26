@@ -13,6 +13,7 @@ import type { AppInitializer } from "@src/core/providers/app-initializer";
 import { APP_INITIALIZER, ON_APP_START } from "@src/core/providers/app-initializer";
 import { JobQueueService } from "@src/core/services/job-queue/job-queue.service";
 import { ApplyDeploymentUpdateHandler } from "@src/deployment/services/apply-deployment-update/apply-deployment-update.handler";
+import { AwaitLeaseResizeHandler } from "@src/deployment/services/await-lease-resize/await-lease-resize.handler";
 import { CloseDeploymentHandler } from "@src/deployment/services/close-deployment/close-deployment.handler";
 import { CreateDeploymentHandler } from "@src/deployment/services/create-deployment/create-deployment.handler";
 import { CreateLeaseHandler } from "@src/deployment/services/create-lease/create-lease.handler";
@@ -88,6 +89,7 @@ export async function startJobQueues(): Promise<void> {
     container.resolve(ReconcileDeploymentCreateHandler),
     container.resolve(ApplyDeploymentUpdateHandler),
     container.resolve(ReconcileDeploymentUpdateHandler),
+    container.resolve(AwaitLeaseResizeHandler),
     container.resolve(CreateLeaseHandler),
     container.resolve(ReconcileLeaseCreateHandler),
     container.resolve(RecordDeploymentSettingHandler),

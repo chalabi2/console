@@ -6913,6 +6913,40 @@
                                 }
                               },
                               "description": "Keyed by volume name. Mount point and read-only flag only — sizes are fixed at create."
+                            },
+                            "resources": {
+                              "type": "object",
+                              "properties": {
+                                "cpu": {
+                                  "type": "number",
+                                  "minimum": 0,
+                                  "exclusiveMinimum": true,
+                                  "description": "CPU units, such as 0.5 or 2."
+                                },
+                                "memory": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 32,
+                                  "description": "Memory, such as 512Mi or 4Gi."
+                                },
+                                "ephemeralStorage": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 32,
+                                  "description": "The size of the service's ephemeral storage, such as 10Gi. A persistent volume keeps the size it was created with."
+                                },
+                                "gpu": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "description": "GPU units. A service with GPUs keeps having some, and one without keeps having none."
+                                }
+                              },
+                              "description": "Resizes the compute profile the service runs on. The profile must be the service's own, since resizing a profile another service shares would resize that service too. A patch that changes resources asks the deployment's provider to resize its lease in place, and so runs in the background."
+                            },
+                            "count": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "description": "Replica count of a service deployed in one placement. Changing it asks the provider to resize the lease in place, and so runs in the background."
                             }
                           }
                         },
@@ -7484,7 +7518,7 @@
             }
           },
           "202": {
-            "description": "The patch passed every check and was saved, and will be applied in the background",
+            "description": "The patch passed every check and was saved, and will be applied in the background. A patch that changes a service's `resources` or `count` is always applied this way, because the deployment's provider has to accept the resize of its lease first; it is recorded as failed if the provider declines or does not answer in time, and the deployment keeps the resources it had while the definition stays recorded. A patch that changes nothing then asks for the resize again",
             "content": {
               "application/json": {
                 "schema": {
@@ -7607,7 +7641,7 @@
             }
           },
           "409": {
-            "description": "The deployment definition changed between this patch reading it and writing it. A patch naming no `ifManifestVersion` is guarded on the version it read, so a concurrent patch produces this too. Re-sending the identical patch is not a conflict, because the version it recomputes is the one the row already holds. `code` is `deployment_definition_changed` for this case, which a reload of the definition cures; a 409 without it answers a seal made against a retired key, which a fresh seal cures. With `code` `deployment_record_unfiled`, the member who filed this team deployment deleted their account and the caller holds a record of the same deployment id in another organization. With `code` `stored_secrets_unavailable`, the stored secrets were sealed for a member who deleted their account, so update the deployment with its full SDL and secret values",
+            "description": "The deployment definition changed between this patch reading it and writing it. A patch naming no `ifManifestVersion` is guarded on the version it read, so a concurrent patch produces this too. Re-sending the identical patch is not a conflict, because the version it recomputes is the one the row already holds. `code` is `deployment_definition_changed` for this case, which a reload of the definition cures; a 409 without it answers a seal made against a retired key, which a fresh seal cures. `code` is `deployment_resize_pending` while a resize of the deployment waits for its provider, since nothing about the deployment can change until the provider answers or the resize is canceled. With `code` `deployment_record_unfiled`, the member who filed this team deployment deleted their account and the caller holds a record of the same deployment id in another organization. With `code` `stored_secrets_unavailable`, the stored secrets were sealed for a member who deleted their account, so update the deployment with its full SDL and secret values",
             "content": {
               "application/json": {
                 "schema": {
@@ -7637,7 +7671,7 @@
             }
           },
           "422": {
-            "description": "The SDL recorded for this deployment no longer declares the groups, compute resources, replica counts or globally exposed ports the deployment holds, as a full-SDL update can leave it: `code` is `deployment_resources_changed`, and nothing is recorded, no deployment update is sent and no provider is contacted",
+            "description": "The patched SDL changes resources the deployment cannot change in place, and nothing is recorded, no deployment update is sent and no provider is contacted. `code` is `deployment_resources_changed` when it changes the deployment's groups, or changes resources where resizing a lease is unavailable; `deployment_resources_unapplied` when it changes other fields while the definition recorded for this deployment asks for other resources than the deployment holds, as a resize that did not go through leaves it, which a patch that changes nothing or names the resources resolves; `deployment_resize_several_groups` when it changes the resources of more than one group, which resize one at a time; and `deployment_resize_refused` when it changes what no running lease can be resized to, such as GPUs added or removed, the size of persistent storage or a globally exposed port",
             "content": {
               "application/json": {
                 "schema": {
@@ -9108,6 +9142,131 @@
           },
           "422": {
             "description": "The owner holds more `active` deployments than a search spans. Page through them without a `search` instead. A search of the archive (`state=closed`) is refused this way only while the console's index is unreachable. In organization mode, a list that would have to check more open deployments than that cap is refused the same way; narrow it with `projectId`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message",
+                    "code",
+                    "type"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/deployments/{dseq}/resize": {
+      "delete": {
+        "summary": "Cancel a pending lease resize",
+        "description": "Withdraws the lease resize a patch asked the deployment's provider for, while the provider has yet to answer it. The deployment keeps the resources it runs and the patch is recorded as failed. The definition the patch saved stays recorded: a patch that changes nothing asks for the resize again, and one setting the resources back to those the deployment runs stops describing the resized one.",
+        "operationId": "deleteDeploymentResize",
+        "tags": [
+          "Deployments"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^0*[1-9]\\d*$",
+              "description": "Deployment sequence number"
+            },
+            "required": true,
+            "description": "Deployment sequence number",
+            "name": "dseq",
+            "in": "path"
+          },
+          {
+            "$ref": "#/components/parameters/OrganizationIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/ProjectIdHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The resize was withdrawn",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "success": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "success"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "With `code` `project_forbidden`, the deployment is filed in a project the caller cannot change",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message",
+                    "code",
+                    "type"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No resize of this deployment waits for its provider",
             "content": {
               "application/json": {
                 "schema": {
@@ -24508,6 +24667,10 @@
                                     "type": "string",
                                     "description": "The base64 manifest version an update saved."
                                   },
+                                  "resize": {
+                                    "type": "boolean",
+                                    "description": "Set on a pending update that waits for the deployment's provider to resize its lease, which `DELETE /v1/deployments/{dseq}/resize` withdraws."
+                                  },
                                   "txHash": {
                                     "type": "string",
                                     "description": "Reference of a pending action whose outcome is still being confirmed."
@@ -24732,6 +24895,10 @@
                             "manifestVersion": {
                               "type": "string",
                               "description": "The base64 manifest version an update saved."
+                            },
+                            "resize": {
+                              "type": "boolean",
+                              "description": "Set on a pending update that waits for the deployment's provider to resize its lease, which `DELETE /v1/deployments/{dseq}/resize` withdraws."
                             },
                             "txHash": {
                               "type": "string",

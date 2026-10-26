@@ -2,8 +2,9 @@ import { singleton } from "tsyringe";
 
 import { ActivityService } from "@src/activity/services/activity/activity.service";
 import { AuthService } from "@src/auth/services/auth.service";
-import type { JobHandler, JobMeta, JobPayload, JobPermissions } from "@src/core";
-import { DeploymentWriterService } from "@src/deployment/services/deployment-writer/deployment-writer.service";
+import { type JobHandler, type JobMeta, type JobPayload, type JobPermissions, JobQueueService } from "@src/core";
+import { AWAIT_LEASE_RESIZE_RETRY_OPTIONS, AwaitLeaseResize, awaitLeaseResizeKeyFor } from "@src/deployment/services/await-lease-resize/await-lease-resize.job";
+import { DeploymentWriterService, type SavedPatchOutcome } from "@src/deployment/services/deployment-writer/deployment-writer.service";
 import { isAccessRevoked, MemberDeploymentAccessService } from "@src/deployment/services/member-deployment-access/member-deployment-access.service";
 import { failedUpdateActivityOf, updatedActivityOf } from "@src/deployment/utils/update-activity/update-activity";
 import { isManifestInvalid } from "@src/provider/services/provider/provider.service";
@@ -22,7 +23,8 @@ export class ApplyDeploymentUpdateHandler implements JobHandler<ApplyDeploymentU
     private readonly deploymentWriterService: DeploymentWriterService,
     private readonly activityService: ActivityService,
     private readonly authService: AuthService,
-    private readonly memberDeploymentAccessService: MemberDeploymentAccessService
+    private readonly memberDeploymentAccessService: MemberDeploymentAccessService,
+    private readonly jobQueueService: JobQueueService
   ) {}
 
   /** An organization's deployment may be filed under another member, so its row is reached through the organization rather than the member who saved the update. */
@@ -33,20 +35,36 @@ export class ApplyDeploymentUpdateHandler implements JobHandler<ApplyDeploymentU
     ];
   }
 
-  async handle({ userId, dseq, manifestVersion, walletId, activityId }: JobPayload<ApplyDeploymentUpdate>, job?: JobMeta): Promise<void> {
+  async handle(
+    { userId, dseq, manifestVersion, walletId, owner, resizes, organizationId, activityId }: JobPayload<ApplyDeploymentUpdate>,
+    job?: JobMeta
+  ): Promise<void> {
     if (!(await this.activityService.isPending(activityId))) return;
 
     const update = { userId, dseq, manifestVersion };
+    let outcome: SavedPatchOutcome;
 
     try {
-      await this.deploymentWriterService.applySavedPatch({ ...update, walletId }, this.authService.ability, {
+      outcome = await this.deploymentWriterService.applySavedPatch({ ...update, walletId, resizes }, this.authService.ability, {
         assertMayStillSign: () => this.memberDeploymentAccessService.assertMayStillSign({ userId, walletId, dseq })
       });
     } catch (error) {
       return await this.#settleFailure(activityId, update, error, job);
     }
 
+    if (outcome === "awaiting-resize") return await this.#awaitTheResize({ ...update, walletId, owner, organizationId, activityId });
+
     await this.activityService.settle(activityId, updatedActivityOf(update));
+  }
+
+  /** The activity stays pending until the provider answers, so the job waiting on that answer is what settles it. */
+  async #awaitTheResize({ owner, ...wait }: Omit<JobPayload<AwaitLeaseResize>, "owner" | "version"> & { owner?: string }): Promise<void> {
+    if (!owner) throw new Error(`Deployment ${wait.dseq} awaits a resize from an update queued without its owner`);
+
+    await this.jobQueueService.enqueue(new AwaitLeaseResize({ ...wait, owner }), {
+      singletonKey: awaitLeaseResizeKeyFor(wait.activityId),
+      ...AWAIT_LEASE_RESIZE_RETRY_OPTIONS
+    });
   }
 
   /** An apply is safe to repeat and skips a version a newer save replaced, so a failure is retried and settles the activity only on the last attempt, except for access the member lost or a manifest the provider found invalid, which no retry changes. */

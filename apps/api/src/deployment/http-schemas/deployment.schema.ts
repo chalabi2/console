@@ -404,6 +404,23 @@ function isEmptyRecord(value: unknown): boolean {
   return !!value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0;
 }
 
+const ResourceSizeSchema = z.string().trim().min(1).max(32);
+
+const PatchResourcesSchema = z
+  .object({
+    cpu: z.number().positive().openapi({ description: "CPU units, such as 0.5 or 2." }),
+    memory: ResourceSizeSchema.openapi({ description: "Memory, such as 512Mi or 4Gi." }),
+    ephemeralStorage: ResourceSizeSchema.openapi({
+      description: "The size of the service's ephemeral storage, such as 10Gi. A persistent volume keeps the size it was created with."
+    }),
+    gpu: z.number().int().min(0).openapi({ description: "GPU units. A service with GPUs keeps having some, and one without keeps having none." })
+  })
+  .partial()
+  .openapi({
+    description:
+      "Resizes the compute profile the service runs on. The profile must be the service's own, since resizing a profile another service shares would resize that service too. A patch that changes resources asks the deployment's provider to resize its lease in place, and so runs in the background."
+  });
+
 export const PatchServiceSchema = z
   .object({
     image: z.string(),
@@ -420,12 +437,27 @@ export const PatchServiceSchema = z
     }),
     storage: z.record(z.string(), z.object({ mount: z.string(), readOnly: z.boolean() }).partial()).openapi({
       description: "Keyed by volume name. Mount point and read-only flag only — sizes are fixed at create."
+    }),
+    resources: PatchResourcesSchema,
+    count: z.number().int().min(1).openapi({
+      description:
+        "Replica count of a service deployed in one placement. Changing it asks the provider to resize the lease in place, and so runs in the background."
     })
   })
   .partial();
 
 export const UpdateDeploymentResponseSchema = z.object({
   data: DeploymentResponseSchema
+});
+
+export const CancelDeploymentResizeParamsSchema = z.object({
+  dseq: DseqSchema.describe("Deployment sequence number")
+});
+
+export const CancelDeploymentResizeResponseSchema = z.object({
+  data: z.object({
+    success: z.boolean()
+  })
 });
 
 export const PatchDeploymentParamsSchema = z.object({
@@ -744,6 +776,7 @@ export type DepositDeploymentRequest = z.infer<typeof DepositDeploymentRequestSc
 export type DepositDeploymentResponse = z.infer<typeof DepositDeploymentResponseSchema>;
 export type UpdateDeploymentRequest = z.infer<typeof UpdateDeploymentRequestSchema>;
 export type PatchService = z.infer<typeof PatchServiceSchema>;
+export type CancelDeploymentResizeResponse = z.infer<typeof CancelDeploymentResizeResponseSchema>;
 export type PatchDeploymentRequest = z.infer<typeof PatchDeploymentRequestSchema>;
 export type PatchDeploymentResponse = z.infer<typeof PatchDeploymentResponseSchema>;
 export type PatchDeploymentQuery = z.infer<typeof PatchDeploymentQuerySchema>;

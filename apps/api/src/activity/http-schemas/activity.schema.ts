@@ -26,6 +26,13 @@ export const ActivitySchema = z.object({
     providers: z.array(z.string()).optional().openapi({ description: "The providers a lease was created with, each named once." }),
     batchId: z.string().optional().openapi({ description: "The bulk close the action was part of, as its request named it." }),
     manifestVersion: z.string().optional().openapi({ description: "The base64 manifest version an update saved." }),
+    resize: z
+      .boolean()
+      .optional()
+      .openapi({
+        description:
+          "Set on a pending update that waits for the deployment's provider to resize its lease, which `DELETE /v1/deployments/{dseq}/resize` withdraws."
+      }),
     txHash: z.string().optional().openapi({ description: "Reference of a pending action whose outcome is still being confirmed." }),
     error: z.object({ code: z.string(), message: z.string() }).optional().openapi({ description: "Why a failed action did not go through." }),
     reason: z.enum(SYSTEM_CLOSE_REASONS).optional().openapi({

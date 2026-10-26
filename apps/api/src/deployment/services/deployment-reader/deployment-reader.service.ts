@@ -180,14 +180,19 @@ export class DeploymentReaderService {
   }
 
   /** The group specs are null when only the database fallback answered, because it rebuilds them without names, endpoints or storage classes. */
+  /** Groups are null for a deployment the database fallback describes, whose groups do not say what it runs. */
   public async findWithGroupSpecsByWalletAndDseq(
     wallet: WalletInitialized,
     dseq: string
-  ): Promise<{ deployment: DeploymentResponse; groupSpecs: OnChainGroupSpec[] | null }> {
+  ): Promise<{ deployment: DeploymentResponse; groupSpecs: OnChainGroupSpec[] | null; groups: DeploymentInfo["groups"] | null }> {
     const { deployment, leases, escrow_account, groups } = await this.#findOnChain(wallet.address, dseq);
-    const groupSpecs = deployment.hash === UNKNOWN_DB_PLACEHOLDER ? null : groups.map(group => group.group_spec);
+    const knownGroups = deployment.hash === UNKNOWN_DB_PLACEHOLDER ? null : groups;
 
-    return { deployment: { deployment, leases: leases.map(lease => ({ ...lease, status: null })), escrow_account }, groupSpecs };
+    return {
+      deployment: { deployment, leases: leases.map(lease => ({ ...lease, status: null })), escrow_account },
+      groupSpecs: knownGroups && knownGroups.map(group => group.group_spec),
+      groups: knownGroups
+    };
   }
 
   /** Read by the address owning the deployment rather than the caller's wallet; null when the chain holds no such deployment. */

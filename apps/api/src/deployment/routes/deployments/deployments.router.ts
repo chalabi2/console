@@ -9,6 +9,8 @@ import { CREATE_DEPLOYMENT_BODY_LIMIT_BYTES } from "@src/deployment/config/sdl-s
 import { DeploymentController } from "@src/deployment/controllers/deployment/deployment.controller";
 import { DeploymentProjectController } from "@src/deployment/controllers/deployment-project/deployment-project.controller";
 import {
+  CancelDeploymentResizeParamsSchema,
+  CancelDeploymentResizeResponseSchema,
   CloseDeploymentAcceptedResponseSchema,
   CloseDeploymentParamsSchema,
   CloseDeploymentQuerySchema,
@@ -268,6 +270,50 @@ deploymentsRouter.openapi(deleteRoute, async function routeCloseDeployment(c) {
   return "activityId" in result.data ? c.json({ data: result.data }, 202) : c.json({ data: result.data }, 200);
 });
 
+const cancelResizeRoute = createRoute({
+  method: "delete",
+  path: "/v1/deployments/{dseq}/resize",
+  summary: "Cancel a pending lease resize",
+  description:
+    "Withdraws the lease resize a patch asked the deployment's provider for, while the provider has yet to answer it. The deployment keeps the resources it runs and the patch is recorded as failed. The definition the patch saved stays recorded: a patch that changes nothing asks for the resize again, and one setting the resources back to those the deployment runs stops describing the resized one.",
+  operationId: "deleteDeploymentResize",
+  tags: ["Deployments"],
+  security: SECURITY_BEARER_OR_API_KEY,
+  request: {
+    params: CancelDeploymentResizeParamsSchema
+  },
+  responses: {
+    200: {
+      description: "The resize was withdrawn",
+      content: {
+        "application/json": {
+          schema: CancelDeploymentResizeResponseSchema
+        }
+      }
+    },
+    403: {
+      description: PROJECT_FORBIDDEN_DESCRIPTION,
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    404: {
+      description: "No resize of this deployment waits for its provider",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    }
+  }
+});
+deploymentsRouter.openapi(cancelResizeRoute, async function routeCancelDeploymentResize(c) {
+  const { dseq } = c.req.valid("param");
+  return c.json(await container.resolve(DeploymentController).cancelResize(dseq), 200);
+});
+
 const depositRoute = createRoute({
   method: "post",
   path: "/v1/deposit-deployment",
@@ -441,7 +487,8 @@ const patchRoute = createRoute({
       }
     },
     202: {
-      description: "The patch passed every check and was saved, and will be applied in the background",
+      description:
+        "The patch passed every check and was saved, and will be applied in the background. A patch that changes a service's `resources` or `count` is always applied this way, because the deployment's provider has to accept the resize of its lease first; it is recorded as failed if the provider declines or does not answer in time, and the deployment keeps the resources it had while the definition stays recorded. A patch that changes nothing then asks for the resize again",
       content: {
         "application/json": {
           schema: PatchDeploymentAcceptedResponseSchema
@@ -475,7 +522,7 @@ const patchRoute = createRoute({
       }
     },
     409: {
-      description: `The deployment definition changed between this patch reading it and writing it. A patch naming no \`ifManifestVersion\` is guarded on the version it read, so a concurrent patch produces this too. Re-sending the identical patch is not a conflict, because the version it recomputes is the one the row already holds. \`code\` is \`deployment_definition_changed\` for this case, which a reload of the definition cures; a 409 without it answers a seal made against a retired key, which a fresh seal cures. ${RECORD_UNFILED_DESCRIPTION}. ${SECRETS_SEALED_FOR_DEPARTED_MEMBER_DESCRIPTION}`,
+      description: `The deployment definition changed between this patch reading it and writing it. A patch naming no \`ifManifestVersion\` is guarded on the version it read, so a concurrent patch produces this too. Re-sending the identical patch is not a conflict, because the version it recomputes is the one the row already holds. \`code\` is \`deployment_definition_changed\` for this case, which a reload of the definition cures; a 409 without it answers a seal made against a retired key, which a fresh seal cures. \`code\` is \`deployment_resize_pending\` while a resize of the deployment waits for its provider, since nothing about the deployment can change until the provider answers or the resize is canceled. ${RECORD_UNFILED_DESCRIPTION}. ${SECRETS_SEALED_FOR_DEPARTED_MEMBER_DESCRIPTION}`,
       content: {
         "application/json": {
           schema: ErrorResponseSchema
@@ -484,7 +531,7 @@ const patchRoute = createRoute({
     },
     422: {
       description:
-        "The SDL recorded for this deployment no longer declares the groups, compute resources, replica counts or globally exposed ports the deployment holds, as a full-SDL update can leave it: `code` is `deployment_resources_changed`, and nothing is recorded, no deployment update is sent and no provider is contacted",
+        "The patched SDL changes resources the deployment cannot change in place, and nothing is recorded, no deployment update is sent and no provider is contacted. `code` is `deployment_resources_changed` when it changes the deployment's groups, or changes resources where resizing a lease is unavailable; `deployment_resources_unapplied` when it changes other fields while the definition recorded for this deployment asks for other resources than the deployment holds, as a resize that did not go through leaves it, which a patch that changes nothing or names the resources resolves; `deployment_resize_several_groups` when it changes the resources of more than one group, which resize one at a time; and `deployment_resize_refused` when it changes what no running lease can be resized to, such as GPUs added or removed, the size of persistent storage or a globally exposed port",
       content: {
         "application/json": {
           schema: ErrorResponseSchema

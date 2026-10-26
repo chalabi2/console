@@ -8,6 +8,17 @@ const UNEXPLAINED_UPDATE_ERROR = { code: "update_failed", message: "Something we
 
 const NOT_APPLIED_ERROR = { code: "update_incomplete", message: "The update did not go through. Try updating it again." };
 
+const RESIZE_DECLINED_ERROR = {
+  code: "resize_declined",
+  message:
+    "The provider declined the new resources, or the resize was canceled, so the deployment keeps the resources it had. Try a smaller change or a higher price."
+};
+
+const RESIZE_EXPIRED_ERROR = {
+  code: "resize_expired",
+  message: "The provider did not answer the resize in time, so the deployment keeps the resources it had. Try updating it again."
+};
+
 const NOT_DELIVERED_ERROR = {
   code: "update_not_delivered",
   message: "The update reached the network, but your provider may not have received it. Try updating it again."
@@ -24,6 +35,10 @@ function updateActivityOf(
 
 export function pendingUpdateActivityOf(key: UpdateKey): NewActivity {
   return updateActivityOf(key, "pending");
+}
+
+export function pendingResizeActivityOf(key: UpdateKey): NewActivity {
+  return updateActivityOf(key, "pending", { resize: true });
 }
 
 /** Also what an update a newer one replaced settles as, because a patch builds on the saved definition and the newer version carries every edit it made. */
@@ -47,4 +62,9 @@ export function notAppliedUpdateActivityOf(key: UpdateKey): NewActivity {
 /** Failed rather than succeeded, because the attempt that sent the update stopped before the manifest went out, and a repeat of the update only pushes it again. */
 export function undeliveredUpdateActivityOf(key: UpdateKey): NewActivity {
   return updateActivityOf(key, "failed", { error: NOT_DELIVERED_ERROR });
+}
+
+/** The update was saved, but the deployment runs the resources it had, because its provider never applied the resize the update asked for. */
+export function unansweredResizeActivityOf(key: UpdateKey, outcome: "declined" | "expired"): NewActivity {
+  return updateActivityOf(key, "failed", { error: outcome === "declined" ? RESIZE_DECLINED_ERROR : RESIZE_EXPIRED_ERROR });
 }

@@ -321,7 +321,9 @@ describe("PATCH /v1/deployments/{dseq} route wiring", () => {
       .get(/\/cosmos\/feegrant\/v1beta1\/allowances?\/.*/)
       .reply(200, createFeeAllowanceResponse({ grantee: address, amount: "5000000" }))
       .get(/\/cosmos\/authz\/v1beta1\/grants\?.*/)
-      .reply(200, createDeploymentGrantResponseSeed({ grantee: address, amount: "20000000", grantType: "/akash.escrow.v1.DepositAuthorization" }));
+      .reply(200, createDeploymentGrantResponseSeed({ grantee: address, amount: "20000000", grantType: "/akash.escrow.v1.DepositAuthorization" }))
+      .get(`/akash/market/${marketVersion}/params`)
+      .reply(200, { params: { lease_resize_enabled: false } });
   }
 
   function nockTxSigner() {

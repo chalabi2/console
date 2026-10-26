@@ -806,6 +806,10 @@ describe("PATCH /v1/deployments/{dseq}", () => {
       .persist()
       .get(`/akash/market/${marketVersion}/leases/list?filters.owner=${address}&filters.dseq=${DSEQ}&pagination.limit=1000`)
       .reply(200, { leases });
+    nock(restUrl)
+      .persist()
+      .get(`/akash/market/${marketVersion}/params`)
+      .reply(200, { params: { lease_resize_enabled: false } });
 
     await createDeployment({ owner: address, dseq: DSEQ });
   }

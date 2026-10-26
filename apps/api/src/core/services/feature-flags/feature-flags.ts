@@ -13,7 +13,8 @@ export const FeatureFlags = {
   BACKGROUND_DEPLOYMENT_CREATE: "background_deployment_create",
   BACKGROUND_DEPLOYMENT_UPDATE: "background_deployment_update",
   BACKGROUND_LEASE_CREATE: "background_lease_create",
-  TEAM_DATA_KEYS: "team_data_keys"
+  TEAM_DATA_KEYS: "team_data_keys",
+  LEASE_RESIZE: "lease_resize"
 } as const;
 
 export type FeatureFlagValue = (typeof FeatureFlags)[keyof typeof FeatureFlags];

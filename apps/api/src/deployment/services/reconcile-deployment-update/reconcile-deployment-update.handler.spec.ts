@@ -6,6 +6,7 @@ import { mock } from "vitest-mock-extended";
 import type { ActivityService } from "@src/activity/services/activity/activity.service";
 import type { JobQueueService } from "@src/core";
 import { ApplyDeploymentUpdate } from "@src/deployment/services/apply-deployment-update/apply-deployment-update.job";
+import { AwaitLeaseResize } from "@src/deployment/services/await-lease-resize/await-lease-resize.job";
 import { notAppliedUpdateActivityOf, undeliveredUpdateActivityOf } from "@src/deployment/utils/update-activity/update-activity";
 import { ReconcileDeploymentUpdateHandler } from "./reconcile-deployment-update.handler";
 import { ReconcileDeploymentUpdate } from "./reconcile-deployment-update.job";
@@ -55,6 +56,20 @@ describe(ReconcileDeploymentUpdateHandler.name, () => {
       retryDelay: 30,
       retryDelayMax: 300
     });
+    expect(deploymentHttpService.findByOwnerAndDseq).not.toHaveBeenCalled();
+    expect(activityService.settle).not.toHaveBeenCalled();
+  });
+
+  it("checks again later while a job still waits for the provider to answer the resize the update asked for", async () => {
+    const { handler, activityService, jobQueueService, deploymentHttpService } = setup({ awaitingResize: true });
+
+    await handler.handle(PAYLOAD);
+
+    expect(jobQueueService.findPendingJobData).toHaveBeenCalledWith(AwaitLeaseResize, "awaitLeaseResize.activity-1");
+    expect(jobQueueService.enqueue).toHaveBeenCalledWith(
+      new ReconcileDeploymentUpdate(DATA),
+      expect.objectContaining({ singletonKey: "reconcileDeploymentUpdate.activity-1" })
+    );
     expect(deploymentHttpService.findByOwnerAndDseq).not.toHaveBeenCalled();
     expect(activityService.settle).not.toHaveBeenCalled();
   });
@@ -124,7 +139,9 @@ describe(ReconcileDeploymentUpdateHandler.name, () => {
     expect(activityService.settle).not.toHaveBeenCalled();
   });
 
-  function setup(input: { pending?: boolean; updateJob?: { completedOn: Date | null }; isUpdateJobGone?: boolean; chainVersion?: string } = {}) {
+  function setup(
+    input: { pending?: boolean; updateJob?: { completedOn: Date | null }; isUpdateJobGone?: boolean; chainVersion?: string; awaitingResize?: boolean } = {}
+  ) {
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     onTestFinished(() => {
       vi.useRealTimers();
@@ -134,6 +151,7 @@ describe(ReconcileDeploymentUpdateHandler.name, () => {
     activityService.isPending.mockResolvedValue(input.pending ?? true);
     const jobQueueService = mock<JobQueueService>();
     jobQueueService.findJob.mockResolvedValue(input.isUpdateJobGone ? undefined : input.updateJob ?? { completedOn: subMinutes(NOW, 10) });
+    jobQueueService.findPendingJobData.mockResolvedValue(input.awaitingResize ? { ...DATA, walletId: 7, version: 1 as const } : undefined);
     const deploymentHttpService = mock<DeploymentHttpService>();
     deploymentHttpService.findByOwnerAndDseq.mockResolvedValue(
       createDeploymentInfoSeed({ owner: DATA.owner, dseq: DATA.dseq, version: input.chainVersion ?? "T0xERVI=" })

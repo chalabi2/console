@@ -277,6 +277,7 @@ describe(DeploymentReaderService.name, () => {
       const result = await service.findWithGroupSpecsByWalletAndDseq(wallet, dseq);
 
       expect(result.groupSpecs).toEqual([group.group_spec]);
+      expect(result.groups).toEqual([group]);
       expect(result.deployment.deployment.id).toEqual({ owner: wallet.address, dseq });
     });
 
@@ -292,6 +293,7 @@ describe(DeploymentReaderService.name, () => {
       const result = await service.findWithGroupSpecsByWalletAndDseq(wallet, dseq);
 
       expect(result.groupSpecs).toBeNull();
+      expect(result.groups).toBeNull();
     });
   });
 

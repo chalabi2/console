@@ -6,6 +6,8 @@ import { mock } from "vitest-mock-extended";
 import type { ActivityService } from "@src/activity/services/activity/activity.service";
 import type { AuthService } from "@src/auth/services/auth.service";
 import { TxOutcomeUnknownError } from "@src/billing/services/external-signer-http-sdk/tx-outcome.error";
+import type { JobQueueService } from "@src/core";
+import { AWAIT_LEASE_RESIZE_RETRY_OPTIONS, AwaitLeaseResize } from "@src/deployment/services/await-lease-resize/await-lease-resize.job";
 import type { DeploymentWriterService } from "@src/deployment/services/deployment-writer/deployment-writer.service";
 import {
   ACCESS_REVOKED_ERROR_CODE,
@@ -55,6 +57,28 @@ describe(ApplyDeploymentUpdateHandler.name, () => {
     expect(deploymentWriterService.applySavedPatch).toHaveBeenCalledWith(SAVED, ability, { assertMayStillSign: expect.any(Function) });
     expect(activityService.settle).toHaveBeenCalledWith("activity-1", updatedActivityOf(UPDATE));
     expect(deploymentWriterService.applySavedPatch.mock.invocationCallOrder[0]).toBeLessThan(activityService.settle.mock.invocationCallOrder[0]);
+  });
+
+  it("leaves the update pending on a job that waits for the provider when the update asks for a resize", async () => {
+    const { handler, deploymentWriterService, activityService, jobQueueService } = setup();
+    deploymentWriterService.applySavedPatch.mockResolvedValue("awaiting-resize");
+
+    await handler.handle({ ...PAYLOAD, owner: "akash1owner", resizes: true }, FIRST_ATTEMPT);
+
+    expect(deploymentWriterService.applySavedPatch).toHaveBeenCalledWith({ ...SAVED, resizes: true }, expect.anything(), expect.anything());
+    expect(jobQueueService.enqueue).toHaveBeenCalledWith(
+      new AwaitLeaseResize({ ...SAVED, owner: "akash1owner", organizationId: "organization-1", activityId: "activity-1" }),
+      { singletonKey: "awaitLeaseResize.activity-1", ...AWAIT_LEASE_RESIZE_RETRY_OPTIONS }
+    );
+    expect(activityService.settle).not.toHaveBeenCalled();
+  });
+
+  it("cannot wait on a resize for an update queued without its wallet's address", async () => {
+    const { handler, deploymentWriterService, jobQueueService } = setup();
+    deploymentWriterService.applySavedPatch.mockResolvedValue("awaiting-resize");
+
+    await expect(handler.handle(PAYLOAD, FIRST_ATTEMPT)).rejects.toThrow("Deployment 100 awaits a resize from an update queued without its owner");
+    expect(jobQueueService.enqueue).not.toHaveBeenCalled();
   });
 
   it("has the writer check, before it signs, that the member who saved the update may still sign with its wallet", async () => {
@@ -178,7 +202,7 @@ describe(ApplyDeploymentUpdateHandler.name, () => {
 
   function setup(input?: { pending?: boolean }) {
     const deploymentWriterService = mock<DeploymentWriterService>();
-    deploymentWriterService.applySavedPatch.mockResolvedValue(undefined);
+    deploymentWriterService.applySavedPatch.mockResolvedValue("applied");
     const activityService = mock<ActivityService>();
     activityService.isPending.mockResolvedValue(input?.pending ?? true);
     const ability = mock<Ability>();
@@ -186,8 +210,10 @@ describe(ApplyDeploymentUpdateHandler.name, () => {
     const memberDeploymentAccessService = mock<MemberDeploymentAccessService>();
     memberDeploymentAccessService.assertMayStillSign.mockResolvedValue(undefined);
 
-    const handler = new ApplyDeploymentUpdateHandler(deploymentWriterService, activityService, authService, memberDeploymentAccessService);
+    const jobQueueService = mock<JobQueueService>();
 
-    return { handler, deploymentWriterService, activityService, ability, memberDeploymentAccessService };
+    const handler = new ApplyDeploymentUpdateHandler(deploymentWriterService, activityService, authService, memberDeploymentAccessService, jobQueueService);
+
+    return { handler, deploymentWriterService, activityService, ability, memberDeploymentAccessService, jobQueueService };
   }
 });

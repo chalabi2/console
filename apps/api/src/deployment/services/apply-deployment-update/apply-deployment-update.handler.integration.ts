@@ -256,6 +256,7 @@ describe(ApplyDeploymentUpdateHandler.name, () => {
         await held;
       }
       log.push(`end ${manifestVersion} ${walletId}.${dseq}`);
+      return "applied";
     });
 
     return { log, heldApplyStarted, release };
@@ -276,9 +277,11 @@ describe(ApplyDeploymentUpdateHandler.name, () => {
     if (input.revoke) await revoke(input.revoke);
 
     const chain = chainHoldingAnOlderVersion(wallet.address as string, dseq);
-    vi.spyOn(container.resolve(DeploymentReaderService), "findByWalletAndDseqWithoutProviderStatus").mockResolvedValue(
-      input.onChain === "saved" ? { ...chain, deployment: { ...chain.deployment, hash: manifestVersion } } : chain
-    );
+    vi.spyOn(container.resolve(DeploymentReaderService), "findWithGroupSpecsByWalletAndDseq").mockResolvedValue({
+      deployment: input.onChain === "saved" ? { ...chain, deployment: { ...chain.deployment, hash: manifestVersion } } : chain,
+      groupSpecs: null,
+      groups: null
+    });
     const broadcast = vi
       .spyOn(container.resolve(ManagedSignerService), "executeDecodedTxByUserWallet")
       .mockResolvedValue({ code: 0, hash: "tx-hash", transactionHash: "tx-hash", rawLog: "" });

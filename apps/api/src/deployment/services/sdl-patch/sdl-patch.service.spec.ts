@@ -1,8 +1,9 @@
 import type { SDLInput } from "@akashnetwork/chain-sdk";
 import { describe, expect, it } from "vitest";
 
+import type { PatchService } from "@src/deployment/http-schemas/deployment.schema";
 import { MAX_ECHOED_REFERENCE_LENGTH, SdlReferenceService } from "@src/deployment/services/sdl-reference/sdl-reference.service";
-import { SdlPatchService } from "./sdl-patch.service";
+import { asksToResize, SdlPatchService } from "./sdl-patch.service";
 
 type SdlExposeEntry = NonNullable<SDLInput["services"][string]["expose"]>[number];
 
@@ -933,8 +934,243 @@ describe(SdlPatchService.name, () => {
     });
   });
 
+  describe("resources and count", () => {
+    it("resizes the compute profile the service runs on", () => {
+      const { service, document } = setup({
+        services: { web: { image: "nginx" } },
+        compute: { web: profile() },
+        deployment: { web: { dcloud: { profile: "web", count: 1 } } }
+      });
+
+      service.apply(document, { web: { resources: { cpu: 2, memory: "4Gi", ephemeralStorage: "10Gi", gpu: 0 } } });
+
+      expect(document.profiles.compute.web.resources).toEqual({ cpu: { units: 2 }, memory: { size: "4Gi" }, storage: { size: "10Gi" } });
+    });
+
+    it("sets the replica count of a service deployed in one placement", () => {
+      const { service, document } = setup({
+        services: { web: { image: "nginx" } },
+        compute: { web: profile() },
+        deployment: { web: { dcloud: { profile: "web", count: 1 } } }
+      });
+
+      service.apply(document, { web: { count: 3 } });
+
+      expect(document.deployment.web.dcloud).toEqual({ profile: "web", count: 3 });
+    });
+
+    it("resizes the ephemeral volume beside a persistent one", () => {
+      const storage = [{ size: "5Gi" }, { name: "data", size: "20Gi", attributes: { persistent: true, class: "beta3" as const } }];
+      const { service, document } = setup({
+        services: { web: { image: "nginx" } },
+        compute: { web: profile({ storage }) },
+        deployment: { web: { dcloud: { profile: "web", count: 1 } } }
+      });
+
+      service.apply(document, { web: { resources: { ephemeralStorage: "8Gi" } } });
+
+      expect(document.profiles.compute.web.resources.storage).toEqual([{ size: "8Gi" }, storage[1]]);
+    });
+
+    it("sets the units of a profile that has GPUs", () => {
+      const gpu = { units: 1, attributes: { vendor: { nvidia: [{ model: "h100" }] } } };
+      const { service, document } = setup({
+        services: { web: { image: "nginx" } },
+        compute: { web: profile({ gpu }) },
+        deployment: { web: { dcloud: { profile: "web", count: 1 } } }
+      });
+
+      service.apply(document, { web: { resources: { gpu: 2 } } });
+
+      expect(document.profiles.compute.web.resources.gpu).toEqual({ ...gpu, units: 2 });
+    });
+
+    it("gives a profile without GPUs some only when asked for them", () => {
+      const { service, document } = setup({
+        services: { web: { image: "nginx" } },
+        compute: { web: profile() },
+        deployment: { web: { dcloud: { profile: "web", count: 1 } } }
+      });
+
+      service.apply(document, { web: { resources: { gpu: 1 } } });
+
+      expect(document.profiles.compute.web.resources.gpu).toEqual({ units: 1 });
+    });
+
+    it("leaves the profile alone given an empty resources record", () => {
+      const { service, document } = setup({
+        services: { web: { image: "nginx" } },
+        compute: { web: profile() },
+        deployment: { web: { dcloud: { profile: "web", count: 1 } } }
+      });
+
+      service.apply(document, { web: { resources: {} } });
+
+      expect(document.profiles.compute.web).toEqual(profile());
+    });
+
+    it("refuses to resize a profile another service runs on", () => {
+      const { service, document } = setup({
+        services: { web: { image: "nginx" }, worker: { image: "busybox" } },
+        compute: { shared: profile() },
+        deployment: { web: { dcloud: { profile: "shared", count: 1 } }, worker: { dcloud: { profile: "shared", count: 1 } } }
+      });
+
+      expect(() => service.apply(document, { web: { resources: { cpu: 2 } } })).toThrow(
+        'service "web" shares compute profile "shared" with service "worker", so resizing it would resize both'
+      );
+      expect(document.profiles.compute.shared).toEqual(profile());
+    });
+
+    it("refuses to resize a profile an anchor shares with another profile", () => {
+      const shared = profile().resources;
+      const { service, document } = setup({
+        services: { web: { image: "nginx" }, worker: { image: "busybox" } },
+        compute: { web: { resources: shared }, worker: { resources: shared } },
+        deployment: { web: { dcloud: { profile: "web", count: 1 } }, worker: { dcloud: { profile: "worker", count: 1 } } }
+      });
+
+      expect(() => service.apply(document, { web: { resources: { memory: "4Gi" } } })).toThrow(
+        'an SDL anchor makes compute profile "web" share its resources with another profile, so resizing it would change both'
+      );
+    });
+
+    it("refuses a count for a service deployed in several placements", () => {
+      const { service, document } = setup({
+        services: { web: { image: "nginx" } },
+        compute: { web: profile() },
+        deployment: { web: { dcloud: { profile: "web", count: 1 }, westcoast: { profile: "web", count: 1 } } }
+      });
+
+      expect(() => service.apply(document, { web: { count: 2 } })).toThrow(
+        'service "web" is deployed in 2 placements, so this patch cannot say which replica count it means'
+      );
+    });
+
+    it("refuses a count for a placement an anchor shares with another service", () => {
+      const placement = { profile: "web", count: 1 };
+      const { service, document } = setup({
+        services: { web: { image: "nginx" }, worker: { image: "busybox" } },
+        compute: { web: profile() },
+        deployment: { web: { dcloud: placement }, worker: { dcloud: placement } }
+      });
+
+      expect(() => service.apply(document, { web: { count: 2 } })).toThrow(
+        'an SDL anchor makes service "web" share its placement with another service, so patching its count would change both'
+      );
+    });
+
+    it("refuses an ephemeral storage size when the profile declares several ephemeral volumes", () => {
+      const { service, document } = setup({
+        services: { web: { image: "nginx" } },
+        compute: { web: profile({ storage: [{ size: "5Gi" }, { name: "scratch", size: "1Gi" }] }) },
+        deployment: { web: { dcloud: { profile: "web", count: 1 } } }
+      });
+
+      expect(() => service.apply(document, { web: { resources: { ephemeralStorage: "8Gi" } } })).toThrow(
+        'compute profile "web" declares 2 ephemeral storage volumes, so this patch cannot say which one it means'
+      );
+    });
+
+    it("refuses to resize a service the SDL does not deploy", () => {
+      const { service, document } = setup({ services: { web: { image: "nginx" } }, compute: { web: profile() }, deployment: {} });
+
+      expect(() => service.apply(document, { web: { resources: { cpu: 2 } } })).toThrow('service "web" is not deployed in any placement');
+    });
+
+    it("refuses a placement naming a compute profile the SDL does not declare", () => {
+      const { service, document } = setup({
+        services: { web: { image: "nginx" } },
+        compute: {},
+        deployment: { web: { dcloud: { profile: "web", count: 1 } } }
+      });
+
+      expect(() => service.apply(document, { web: { resources: { cpu: 2 } } })).toThrow(
+        'service "web" runs on compute profile "web", which the SDL does not declare'
+      );
+    });
+
+    it("writes resources without treating them as a write to an anchored service", () => {
+      const { service, document } = setup({
+        services: { web: { image: "nginx" } },
+        compute: { web: profile() },
+        deployment: { web: { dcloud: { profile: "web", count: 1 } } },
+        aliasWebAs: "alias"
+      });
+
+      service.apply(document, { web: { count: 2 } });
+
+      expect(document.deployment.web.dcloud.count).toBe(2);
+    });
+
+    it.each([
+      { field: "cpu", patch: { cpu: 2 }, expected: { cpu: { units: 2 }, memory: { size: "1Gi" }, storage: { size: "5Gi" } } },
+      { field: "memory", patch: { memory: "4Gi" }, expected: { cpu: { units: 1 }, memory: { size: "4Gi" }, storage: { size: "5Gi" } } },
+      { field: "ephemeralStorage", patch: { ephemeralStorage: "8Gi" }, expected: { cpu: { units: 1 }, memory: { size: "1Gi" }, storage: { size: "8Gi" } } },
+      { field: "gpu", patch: { gpu: 1 }, expected: { cpu: { units: 1 }, memory: { size: "1Gi" }, storage: { size: "5Gi" }, gpu: { units: 1 } } }
+    ])("writes only $field of the resources and leaves the count alone", ({ patch, expected }) => {
+      const { service, document } = setup({
+        services: { web: { image: "nginx" } },
+        compute: { web: profile() },
+        deployment: { web: { dcloud: { profile: "web", count: 2 } } }
+      });
+
+      service.apply(document, { web: { resources: patch } });
+
+      expect(document.profiles.compute.web.resources).toEqual(expected);
+      expect(document.deployment.web.dcloud.count).toBe(2);
+    });
+
+    it("tells a persistent volume spelled as a string from the ephemeral one", () => {
+      const storage = [{ name: "data", size: "20Gi", attributes: { persistent: "true", class: "beta3" } }, { size: "5Gi" }];
+      const { service, document } = setup({
+        services: { web: { image: "nginx" } },
+        compute: { web: profile({ storage: storage as SDLInput["profiles"]["compute"][string]["resources"]["storage"] }) },
+        deployment: { web: { dcloud: { profile: "web", count: 1 } } }
+      });
+
+      service.apply(document, { web: { resources: { ephemeralStorage: "8Gi" } } });
+
+      expect(document.profiles.compute.web.resources.storage).toEqual([storage[0], { size: "8Gi" }]);
+    });
+
+    it("refuses to resize a profile an anchor shares one node of with another profile", () => {
+      const memory = { size: "1Gi" };
+      const { service, document } = setup({
+        services: { web: { image: "nginx" }, worker: { image: "worker" } },
+        compute: { web: profile({ memory }), worker: profile({ memory, cpu: { units: 4 } }) },
+        deployment: { web: { dcloud: { profile: "web", count: 1 } }, worker: { dcloud: { profile: "worker", count: 1 } } }
+      });
+
+      expect(() => service.apply(document, { web: { resources: { cpu: 2 } } })).toThrow(
+        'an SDL anchor makes compute profile "web" share its resources with another profile, so resizing it would change both'
+      );
+    });
+
+    it("refuses to resize a profile another service runs on in one of its placements", () => {
+      const { service, document } = setup({
+        services: { web: { image: "nginx" }, worker: { image: "worker" } },
+        compute: { web: profile(), other: profile() },
+        deployment: {
+          web: { dcloud: { profile: "web", count: 1 } },
+          worker: { dcloud: { profile: "other", count: 1 }, westcoast: { profile: "web", count: 1 } }
+        }
+      });
+
+      expect(() => service.apply(document, { web: { resources: { cpu: 2 } } })).toThrow(
+        'service "web" shares compute profile "web" with service "worker", so resizing it would resize both'
+      );
+    });
+
+    function profile(resources: Partial<SDLInput["profiles"]["compute"][string]["resources"]> = {}): SDLInput["profiles"]["compute"][string] {
+      return { resources: { cpu: { units: 1 }, memory: { size: "1Gi" }, storage: { size: "5Gi" }, ...resources } };
+    }
+  });
+
   function setup(input: {
     services: Record<string, SDLInput["services"][string]>;
+    compute?: SDLInput["profiles"]["compute"];
+    deployment?: SDLInput["deployment"];
     shareEnv?: string[];
     shareCredentials?: NonNullable<SDLInput["services"][string]["credentials"]>;
     shareExpose?: NonNullable<SDLInput["services"][string]["expose"]>;
@@ -957,10 +1193,24 @@ describe(SdlPatchService.name, () => {
     const document: SDLInput = {
       version: "2.0",
       services,
-      profiles: { compute: {}, placement: {} },
-      deployment: {}
+      profiles: { compute: input.compute ?? {}, placement: {} },
+      deployment: input.deployment ?? {}
     };
 
     return { service: new SdlPatchService(), document };
   }
+});
+
+describe(asksToResize.name, () => {
+  it.each<{ patches: Record<string, PatchService>; expected: boolean }>([
+    { patches: { web: { resources: { cpu: 2 } } }, expected: true },
+    { patches: { web: { resources: { memory: "1Gi" } } }, expected: true },
+    { patches: { web: { image: "x" }, db: { count: 2 } }, expected: true },
+    { patches: { web: { resources: {} } }, expected: false },
+    { patches: { web: { resources: { cpu: undefined } } }, expected: false },
+    { patches: { web: { image: "x" } }, expected: false },
+    { patches: {}, expected: false }
+  ])("tells whether $patches asks to resize: $expected", ({ patches, expected }) => {
+    expect(asksToResize(patches)).toBe(expected);
+  });
 });

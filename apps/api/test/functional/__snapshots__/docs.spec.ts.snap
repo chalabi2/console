@@ -1698,6 +1698,10 @@ exports[`API Docs > GET /v1/doc > returns docs with all routes expected 1`] = `
                                     ],
                                     "type": "string",
                                   },
+                                  "resize": {
+                                    "description": "Set on a pending update that waits for the deployment's provider to resize its lease, which \`DELETE /v1/deployments/{dseq}/resize\` withdraws.",
+                                    "type": "boolean",
+                                  },
                                   "summary": {
                                     "description": "The alert's summary as the user wrote it, filled in for this firing, on an alert.",
                                     "type": "string",
@@ -2033,6 +2037,10 @@ exports[`API Docs > GET /v1/doc > returns docs with all routes expected 1`] = `
                                 "no_lease",
                               ],
                               "type": "string",
+                            },
+                            "resize": {
+                              "description": "Set on a pending update that waits for the deployment's provider to resize its lease, which \`DELETE /v1/deployments/{dseq}/resize\` withdraws.",
+                              "type": "boolean",
                             },
                             "summary": {
                               "description": "The alert's summary as the user wrote it, filled in for this firing, on an alert.",
@@ -10321,6 +10329,11 @@ exports[`API Docs > GET /v1/doc > returns docs with all routes expected 1`] = `
                               "nullable": true,
                               "type": "array",
                             },
+                            "count": {
+                              "description": "Replica count of a service deployed in one placement. Changing it asks the provider to resize the lease in place, and so runs in the background.",
+                              "minimum": 1,
+                              "type": "integer",
+                            },
                             "credentials": {
                               "description": "Private registry pull credentials. Null clears them.",
                               "nullable": true,
@@ -10430,6 +10443,35 @@ exports[`API Docs > GET /v1/doc > returns docs with all routes expected 1`] = `
                             },
                             "image": {
                               "type": "string",
+                            },
+                            "resources": {
+                              "description": "Resizes the compute profile the service runs on. The profile must be the service's own, since resizing a profile another service shares would resize that service too. A patch that changes resources asks the deployment's provider to resize its lease in place, and so runs in the background.",
+                              "properties": {
+                                "cpu": {
+                                  "description": "CPU units, such as 0.5 or 2.",
+                                  "exclusiveMinimum": true,
+                                  "minimum": 0,
+                                  "type": "number",
+                                },
+                                "ephemeralStorage": {
+                                  "description": "The size of the service's ephemeral storage, such as 10Gi. A persistent volume keeps the size it was created with.",
+                                  "maxLength": 32,
+                                  "minLength": 1,
+                                  "type": "string",
+                                },
+                                "gpu": {
+                                  "description": "GPU units. A service with GPUs keeps having some, and one without keeps having none.",
+                                  "minimum": 0,
+                                  "type": "integer",
+                                },
+                                "memory": {
+                                  "description": "Memory, such as 512Mi or 4Gi.",
+                                  "maxLength": 32,
+                                  "minLength": 1,
+                                  "type": "string",
+                                },
+                              },
+                              "type": "object",
                             },
                             "storage": {
                               "additionalProperties": {
@@ -11033,7 +11075,7 @@ exports[`API Docs > GET /v1/doc > returns docs with all routes expected 1`] = `
                 },
               },
             },
-            "description": "The patch passed every check and was saved, and will be applied in the background",
+            "description": "The patch passed every check and was saved, and will be applied in the background. A patch that changes a service's \`resources\` or \`count\` is always applied this way, because the deployment's provider has to accept the resize of its lease first; it is recorded as failed if the provider declines or does not answer in time, and the deployment keeps the resources it had while the definition stays recorded. A patch that changes nothing then asks for the resize again",
           },
           "400": {
             "content": {
@@ -11153,7 +11195,7 @@ exports[`API Docs > GET /v1/doc > returns docs with all routes expected 1`] = `
                 },
               },
             },
-            "description": "The deployment definition changed between this patch reading it and writing it. A patch naming no \`ifManifestVersion\` is guarded on the version it read, so a concurrent patch produces this too. Re-sending the identical patch is not a conflict, because the version it recomputes is the one the row already holds. \`code\` is \`deployment_definition_changed\` for this case, which a reload of the definition cures; a 409 without it answers a seal made against a retired key, which a fresh seal cures. With \`code\` \`deployment_record_unfiled\`, the member who filed this team deployment deleted their account and the caller holds a record of the same deployment id in another organization. With \`code\` \`stored_secrets_unavailable\`, the stored secrets were sealed for a member who deleted their account, so update the deployment with its full SDL and secret values",
+            "description": "The deployment definition changed between this patch reading it and writing it. A patch naming no \`ifManifestVersion\` is guarded on the version it read, so a concurrent patch produces this too. Re-sending the identical patch is not a conflict, because the version it recomputes is the one the row already holds. \`code\` is \`deployment_definition_changed\` for this case, which a reload of the definition cures; a 409 without it answers a seal made against a retired key, which a fresh seal cures. \`code\` is \`deployment_resize_pending\` while a resize of the deployment waits for its provider, since nothing about the deployment can change until the provider answers or the resize is canceled. With \`code\` \`deployment_record_unfiled\`, the member who filed this team deployment deleted their account and the caller holds a record of the same deployment id in another organization. With \`code\` \`stored_secrets_unavailable\`, the stored secrets were sealed for a member who deleted their account, so update the deployment with its full SDL and secret values",
           },
           "422": {
             "content": {
@@ -11183,7 +11225,7 @@ exports[`API Docs > GET /v1/doc > returns docs with all routes expected 1`] = `
                 },
               },
             },
-            "description": "The SDL recorded for this deployment no longer declares the groups, compute resources, replica counts or globally exposed ports the deployment holds, as a full-SDL update can leave it: \`code\` is \`deployment_resources_changed\`, and nothing is recorded, no deployment update is sent and no provider is contacted",
+            "description": "The patched SDL changes resources the deployment cannot change in place, and nothing is recorded, no deployment update is sent and no provider is contacted. \`code\` is \`deployment_resources_changed\` when it changes the deployment's groups, or changes resources where resizing a lease is unavailable; \`deployment_resources_unapplied\` when it changes other fields while the definition recorded for this deployment asks for other resources than the deployment holds, as a resize that did not go through leaves it, which a patch that changes nothing or names the resources resolves; \`deployment_resize_several_groups\` when it changes the resources of more than one group, which resize one at a time; and \`deployment_resize_refused\` when it changes what no running lease can be resized to, such as GPUs added or removed, the size of persistent storage or a globally exposed port",
           },
           "500": {
             "content": {
@@ -12397,6 +12439,131 @@ exports[`API Docs > GET /v1/doc > returns docs with all routes expected 1`] = `
           },
         ],
         "summary": "Move a deployment to another project of the active organization",
+        "tags": [
+          "Deployments",
+        ],
+      },
+    },
+    "/v1/deployments/{dseq}/resize": {
+      "delete": {
+        "description": "Withdraws the lease resize a patch asked the deployment's provider for, while the provider has yet to answer it. The deployment keeps the resources it runs and the patch is recorded as failed. The definition the patch saved stays recorded: a patch that changes nothing asks for the resize again, and one setting the resources back to those the deployment runs stops describing the resized one.",
+        "operationId": "deleteDeploymentResize",
+        "parameters": [
+          {
+            "description": "Deployment sequence number",
+            "in": "path",
+            "name": "dseq",
+            "required": true,
+            "schema": {
+              "description": "Deployment sequence number",
+              "pattern": "^0*[1-9]\\d*$",
+              "type": "string",
+            },
+          },
+          {
+            "$ref": "#/components/parameters/OrganizationIdHeader",
+          },
+          {
+            "$ref": "#/components/parameters/ProjectIdHeader",
+          },
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "properties": {
+                        "success": {
+                          "type": "boolean",
+                        },
+                      },
+                      "required": [
+                        "success",
+                      ],
+                      "type": "object",
+                    },
+                  },
+                  "required": [
+                    "data",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "The resize was withdrawn",
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                    },
+                    "error": {
+                      "type": "string",
+                    },
+                    "message": {
+                      "type": "string",
+                    },
+                    "type": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "error",
+                    "message",
+                    "code",
+                    "type",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "With \`code\` \`project_forbidden\`, the deployment is filed in a project the caller cannot change",
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                    },
+                    "error": {
+                      "type": "string",
+                    },
+                    "message": {
+                      "type": "string",
+                    },
+                    "type": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "error",
+                    "message",
+                    "code",
+                    "type",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "No resize of this deployment waits for its provider",
+          },
+        },
+        "security": [
+          {
+            "BearerAuth": [],
+          },
+          {
+            "ApiKeyAuth": [],
+          },
+        ],
+        "summary": "Cancel a pending lease resize",
         "tags": [
           "Deployments",
         ],

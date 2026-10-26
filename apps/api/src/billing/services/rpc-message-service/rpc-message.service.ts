@@ -8,8 +8,14 @@ import {
   Scope,
   Source
 } from "@akashnetwork/chain-sdk/private-types/akash.v1";
-import { GroupSpec, MsgCloseDeployment, MsgCreateDeployment, MsgUpdateDeployment } from "@akashnetwork/chain-sdk/private-types/akash.v1beta4";
-import { MsgCreateLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
+import {
+  GroupSpec,
+  MsgCloseDeployment,
+  MsgCreateDeployment,
+  MsgUpdateDeployment,
+  type ResourceUnit
+} from "@akashnetwork/chain-sdk/private-types/akash.v1beta4";
+import { MsgCancelLeaseResize, MsgCreateLease, MsgResizeLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
 import { BasicAllowance, MsgExec, MsgGrant, MsgGrantAllowance, MsgRevoke, MsgRevokeAllowance } from "@akashnetwork/chain-sdk/private-types/cosmos.v1beta1";
 import addYears from "date-fns/addYears";
 import { singleton } from "tsyringe";
@@ -47,6 +53,21 @@ export interface CreateLeaseMsgOptions {
   gseq: number;
   oseq: number;
   provider: string;
+}
+
+export interface LeaseIdMsgOptions {
+  owner: string;
+  dseq: string | bigint;
+  gseq: number;
+  oseq: number;
+  provider: string;
+  bseq: number;
+}
+
+export interface ResizeLeaseMsgOptions {
+  lease: LeaseIdMsgOptions;
+  resources: ResourceUnit[];
+  hash: Uint8Array;
 }
 
 export interface UpdateDeploymentMsgOptions {
@@ -194,6 +215,20 @@ export class RpcMessageService {
           provider
         }
       })
+    };
+  }
+
+  getResizeLeaseMsg({ lease, resources, hash }: ResizeLeaseMsgOptions) {
+    return {
+      typeUrl: `/${MsgResizeLease.$type}`,
+      value: MsgResizeLease.fromPartial({ id: lease, resources, hash })
+    };
+  }
+
+  getCancelLeaseResizeMsg(lease: LeaseIdMsgOptions) {
+    return {
+      typeUrl: `/${MsgCancelLeaseResize.$type}`,
+      value: MsgCancelLeaseResize.fromPartial({ id: lease })
     };
   }
 

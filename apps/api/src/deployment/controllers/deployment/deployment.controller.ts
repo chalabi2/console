@@ -17,6 +17,7 @@ import type {
   PatchDeploymentQuery
 } from "@src/deployment/http-schemas/deployment.schema";
 import {
+  CancelDeploymentResizeResponse,
   CloseDeploymentResponse,
   CreateDeploymentDefinitionRequest,
   CreateDeploymentDefinitionResponse,
@@ -130,6 +131,12 @@ export class DeploymentController {
     }
 
     return { data: await this.deploymentWriterService.patchByUserIdAndDseq(userId, dseq, input, this.authService.ability) };
+  }
+
+  @Protected([{ action: "sign", subject: "UserWallet" }])
+  async cancelResize(dseq: string): Promise<CancelDeploymentResizeResponse> {
+    await this.deploymentWriterService.cancelResizeByUserIdAndDseq(this.authService.currentUser.id, dseq);
+    return { data: { success: true } };
   }
 
   @Protected([{ action: "sign", subject: "UserWallet" }])

@@ -1,7 +1,7 @@
 import type { SDLInput, ValidationError } from "@akashnetwork/chain-sdk";
 import { manifestToSortedJSON } from "@akashnetwork/chain-sdk";
 import type { GroupSpec } from "@akashnetwork/chain-sdk/private-types/akash.v1beta4";
-import { DeploymentHttpService } from "@akashnetwork/http-sdk";
+import { DeploymentHttpService, type DeploymentInfo } from "@akashnetwork/http-sdk";
 import type { AnyAbility } from "@casl/ability";
 import { addMinutes } from "date-fns";
 import { HTTPException } from "hono/http-exception";
@@ -58,6 +58,7 @@ import {
 import { DeploymentPresenceService } from "@src/deployment/services/deployment-presence/deployment-presence.service";
 import { DeploymentProjectService } from "@src/deployment/services/deployment-project/deployment-project.service";
 import { LeaseGpuDetectionJobService } from "@src/deployment/services/lease-gpu-detection-job/lease-gpu-detection-job.service";
+import { LeaseResizeService, resourcesChangedError } from "@src/deployment/services/lease-resize/lease-resize.service";
 import {
   ReconcileDeploymentClose,
   reconcileDeploymentCloseOptionsFor
@@ -71,7 +72,7 @@ import {
   reconcileDeploymentUpdateOptionsFor
 } from "@src/deployment/services/reconcile-deployment-update/reconcile-deployment-update.job";
 import { type ResolvedSdl, SdlService } from "@src/deployment/services/sdl/sdl.service";
-import { SdlPatchService } from "@src/deployment/services/sdl-patch/sdl-patch.service";
+import { asksToResize, SdlPatchService } from "@src/deployment/services/sdl-patch/sdl-patch.service";
 import { MAX_ECHOED_REFERENCE_LENGTH, SdlReferenceService } from "@src/deployment/services/sdl-reference/sdl-reference.service";
 import { SdlSecretsService, unreferencedNameError } from "@src/deployment/services/sdl-secrets/sdl-secrets.service";
 import { SdlSecretsDerivationService } from "@src/deployment/services/sdl-secrets-derivation/sdl-secrets-derivation.service";
@@ -87,10 +88,16 @@ import {
   encodeCreateDeploymentMessage
 } from "@src/deployment/utils/create-deployment-message/create-deployment-message";
 import { deriveDeploymentName } from "@src/deployment/utils/deployment-name/deployment-name";
+import { type LeaseResizePlan, resourceChangeOf } from "@src/deployment/utils/lease-resize-plan/lease-resize-plan";
 import type { StorableSdl, StoredSdlPosition, StoredSdlRefusal } from "@src/deployment/utils/sdl-for-storage/sdl-for-storage";
 import { parseSdlForStorage, sdlForStorage } from "@src/deployment/utils/sdl-for-storage/sdl-for-storage";
 import { findMissingGlobalExposure } from "@src/deployment/utils/sdl-manifest/sdl-manifest";
-import { failedUpdateActivityOf, pendingUpdateActivityOf, updatedActivityOf } from "@src/deployment/utils/update-activity/update-activity";
+import {
+  failedUpdateActivityOf,
+  pendingResizeActivityOf,
+  pendingUpdateActivityOf,
+  updatedActivityOf
+} from "@src/deployment/utils/update-activity/update-activity";
 import { ProviderService } from "@src/provider/services/provider/provider.service";
 import { COSMOS_TX_CODE_OK } from "@src/utils/constants";
 import { denomToUdenom } from "@src/utils/math";
@@ -107,9 +114,6 @@ const STORED_SDL_UNREADABLE_ERROR_CODE = "stored_sdl_unreadable";
 
 /** A seal made against a retired key also answers a bare 409, and only this one is cured by reloading the definition rather than resealing. */
 const DEFINITION_CHANGED_ERROR_CODE = "deployment_definition_changed";
-
-/** Lets a client tell an SDL that needs a new deployment from one that is merely invalid. */
-const RESOURCES_CHANGED_ERROR_CODE = "deployment_resources_changed";
 
 /** A deployment the console never recorded an SDL for has nothing to patch, and the SDL is deliberately not accepted from the request. */
 const NOT_PATCHABLE_MESSAGE = "This deployment has no SDL recorded by the console, so there is nothing to patch";
@@ -198,7 +202,8 @@ function prunedOverlayOf(sets: { carried: SdlSecrets; supplied: SdlSecrets; deri
 }
 
 /** Carries no secret and no resolved manifest, so a job payload can hold it, and names the wallet when it belongs to an organization rather than a user. */
-export type SavedPatch = { userId: string; dseq: string; manifestVersion: string; walletId?: number };
+/** `resizes` marks a patch that asked to resize, since one whose stored SDL merely drifted from the deployment must never resize its lease. */
+export type SavedPatch = { userId: string; dseq: string; manifestVersion: string; walletId?: number; resizes?: boolean };
 
 /** `assertMayStillSign` runs only once the chain shows another version, so an update an earlier attempt landed needs no signature to settle. */
 export type SavedPatchApply = { assertMayStillSign?: () => Promise<void> };
@@ -210,8 +215,13 @@ type PreparedPatch = {
   dseq: string;
   resolved: ResolvedSdl;
   deployment: DeploymentResponse;
+  /** Set when the patch changes a group's resources, which the provider applies by resizing its lease in place rather than through an update. */
+  resize?: LeaseResizePlan;
   assertMayStillSign?: () => Promise<void>;
 };
+
+/** A resize is applied once its provider accepts it, so the apply that asked for one reports that instead of finishing. */
+export type SavedPatchOutcome = "replaced" | "applied" | "awaiting-resize";
 
 type StoredDefinition = {
   sdl: string;
@@ -268,7 +278,8 @@ export class DeploymentWriterService {
     private readonly deploymentHttpService: DeploymentHttpService,
     private readonly chainErrorService: ChainErrorService,
     private readonly deploymentPresenceService: DeploymentPresenceService,
-    private readonly userGpuBidCheckService: UserGpuBidCheckService
+    private readonly userGpuBidCheckService: UserGpuBidCheckService,
+    private readonly leaseResizeService: LeaseResizeService
   ) {
     this.logger = createLogger({ context: DeploymentWriterService.name });
   }
@@ -829,6 +840,12 @@ export class DeploymentWriterService {
     return true;
   }
 
+  /** Signed with the wallet the caller acts with, so the signer holds the cancel to the deployment's project like any other message. */
+  public async cancelResizeByUserIdAndDseq(userId: string, dseq: string): Promise<void> {
+    const wallet = await this.walletReaderService.getWalletByUserId(userId);
+    await this.leaseResizeService.cancel({ wallet, dseq, actingUserId: userId });
+  }
+
   public async deposit(options: { userId: string; dseq: string; amount: number }): Promise<DeploymentResponse> {
     this.logger.warn({ event: "DEPRECATED_DEPOSIT_DEPLOYMENT_ENDPOINT_USED", userId: options.userId, dseq: options.dseq });
 
@@ -894,12 +911,15 @@ export class DeploymentWriterService {
     dseq: string,
     input: PatchDeploymentRequest["data"],
     ability: AnyAbility
-  ): Promise<PatchDeploymentResponse["data"]> {
+  ): Promise<PatchDeploymentResponse["data"] | PatchDeploymentAcceptedResponse["data"]> {
     if (isRenameOnly(input)) {
       return await this.#renameByUserIdAndDseq(userId, dseq, input.name, ability);
     }
 
     const write = await this.#preparePatch(userId, dseq, input, ability);
+
+    if (write.prepared.resize) return await this.#saveForBackgroundApply(write, ability);
+
     const { name } = await this.#savePatch(write, ability);
 
     await this.#applyRecordingOutcome(write, ability);
@@ -922,12 +942,27 @@ export class DeploymentWriterService {
 
     const write = await this.#preparePatch(userId, dseq, input, ability);
 
+    return await this.#saveForBackgroundApply(write, ability);
+  }
+
+  /** The save commits with its pending activity, the job that applies it and a later check on it, so no saved patch is left without an apply or an activity without an outcome. */
+  async #saveForBackgroundApply(write: PatchWrite, ability: AnyAbility): Promise<PatchDeploymentAcceptedResponse["data"]> {
     return await this.txService.transaction(async () => {
       await this.#savePatch(write, ability);
       const { saved, organizationId, prepared } = write;
+      const { userId, dseq } = saved;
       const activityId = randomUUID();
-      await this.activityService.open({ id: activityId, ...pendingUpdateActivityOf(saved) });
-      const update = { userId, dseq, manifestVersion: saved.manifestVersion, walletId: prepared.wallet.id, organizationId, activityId };
+      await this.activityService.open({ id: activityId, ...(prepared.resize ? pendingResizeActivityOf(saved) : pendingUpdateActivityOf(saved)) });
+      const update = {
+        userId,
+        dseq,
+        manifestVersion: saved.manifestVersion,
+        walletId: prepared.wallet.id,
+        owner: prepared.wallet.address,
+        ...(prepared.resize && { resizes: true }),
+        organizationId,
+        activityId
+      };
       const updateJobId = await this.jobQueueService.enqueue(new ApplyDeploymentUpdate(update), {
         singletonKey: applyDeploymentUpdateKeyFor(update),
         ...APPLY_DEPLOYMENT_UPDATE_RETRY_OPTIONS
@@ -980,17 +1015,17 @@ export class DeploymentWriterService {
   }
 
   /** Depends on no request state, because a background job runs it as the background user under the ability its handler declares. */
-  public async applySavedPatch(saved: SavedPatch, ability: AnyAbility, { assertMayStillSign }: SavedPatchApply = {}): Promise<void> {
+  public async applySavedPatch(saved: SavedPatch, ability: AnyAbility, { assertMayStillSign }: SavedPatchApply = {}): Promise<SavedPatchOutcome> {
     const wallet =
       saved.walletId === undefined
         ? await this.walletReaderService.getWalletByUserId(saved.userId)
         : await this.walletReaderService.getWalletById(saved.walletId);
     const filedUserId = await this.signerService.filedUserIdOf(wallet, saved.userId, saved.dseq);
     const definition = await this.#findDefinitionSavedAs(saved, filedUserId, ability);
-    if (!definition) return;
+    if (!definition) return "replaced";
 
     const prepared = await this.#prepareSavedDefinition({ saved, wallet, filedUserId }, definition);
-    await this.#applyPrepared({ ...prepared, assertMayStillSign });
+    return await this.#applyPrepared({ ...prepared, assertMayStillSign });
   }
 
   /** Every check that can refuse the patch, and the key-service calls, run here so a background patch can commit its single write with the job that applies it. */
@@ -1015,8 +1050,15 @@ export class DeploymentWriterService {
     const merged = this.#mergeAndPrune({ held, supplied, derived }, document);
 
     const { manifestVersion, manifest } = await this.#resolveDeployableSdl(patchedSdl, { secrets: merged, isTrialing: !!wallet.isTrialing });
-    const { deployment, groupSpecs } = await this.deploymentReaderService.findWithGroupSpecsByWalletAndDseq(wallet, dseq);
-    this.#assertResourcesUnchanged(manifest.groupSpecs, groupSpecs);
+    const { deployment, groups } = await this.deploymentReaderService.findWithGroupSpecsByWalletAndDseq(wallet, dseq);
+    const resize = await this.leaseResizeService.planFor({
+      userId,
+      owner: wallet.address,
+      dseq,
+      submitted: manifest.groupSpecs,
+      groups,
+      mayResize: asksToResize(input.services ?? {}) || !assignsAnyServiceField(input.services)
+    });
 
     const recordedVersion = Buffer.from(manifestVersion).toString("base64");
     const sealedSecrets = await this.sdlSecretsService.sealForStorage({ userId: filedUserId, teamId: teamIdOf(wallet), dseq, secrets: merged });
@@ -1039,7 +1081,7 @@ export class DeploymentWriterService {
       saved: { userId, dseq, manifestVersion: recordedVersion, ...organizationWalletOf(wallet) },
       filedUserId,
       organizationId: stored.organizationId,
-      prepared: { actingUserId: userId, wallet, dseq, resolved: { manifestVersion, manifest }, deployment }
+      prepared: { actingUserId: userId, wallet, dseq, resolved: { manifestVersion, manifest }, deployment, resize }
     };
   }
 
@@ -1080,12 +1122,41 @@ export class DeploymentWriterService {
         })
       : {};
     const resolved = await this.#resolveSdl(definition.sdl, { secrets });
-    const deployment = await this.deploymentReaderService.findByWalletAndDseqWithoutProviderStatus(wallet, saved.dseq);
+    const prepared = { actingUserId: saved.userId, wallet, dseq: saved.dseq, resolved };
 
-    return { actingUserId: saved.userId, wallet, dseq: saved.dseq, resolved, deployment };
+    if (!saved.resizes) return { ...prepared, deployment: await this.deploymentReaderService.findByWalletAndDseqWithoutProviderStatus(wallet, saved.dseq) };
+
+    const { deployment, groups } = await this.deploymentReaderService.findWithGroupSpecsByWalletAndDseq(wallet, saved.dseq);
+
+    return { ...prepared, deployment, resize: this.#resizeStillAhead(resolved.manifest.groupSpecs, groups) };
   }
 
-  async #applyPrepared({ actingUserId, wallet, dseq, resolved, deployment, assertMayStillSign }: PreparedPatch): Promise<void> {
+  /** The request that saved the patch already held it to the resize rules, so a change that is no longer a resize means the deployment moved under it. */
+  #resizeStillAhead(submitted: GroupSpec[], groups: DeploymentInfo["groups"] | null): LeaseResizePlan | undefined {
+    if (!groups) return undefined;
+
+    const change = resourceChangeOf(submitted, groups);
+
+    if (change.kind === "unchanged") return undefined;
+    if (change.kind === "resize") return change.plan;
+
+    throw resourcesChangedError(change.kind === "several-groups" ? change.groupNames[0] : change.groupName);
+  }
+
+  async #applyPrepared({
+    actingUserId,
+    wallet,
+    dseq,
+    resolved,
+    deployment,
+    resize,
+    assertMayStillSign
+  }: PreparedPatch): Promise<"applied" | "awaiting-resize"> {
+    if (resize) {
+      await this.leaseResizeService.request({ wallet, deployment, plan: resize, manifestVersion: resolved.manifestVersion, actingUserId, assertMayStillSign });
+      return "awaiting-resize";
+    }
+
     await this.ensureDeploymentIsUpToDate({ userId: actingUserId, wallet, assertMayStillSign }, dseq, resolved.manifestVersion, deployment);
     await this.sendManifestToProviders({
       auth: { walletId: wallet.id },
@@ -1095,6 +1166,8 @@ export class DeploymentWriterService {
     });
     await this.restartTrialWorkloadProbe(wallet, dseq);
     await this.restartLeaseGpuDetection(wallet, dseq);
+
+    return "applied";
   }
 
   /** Sends no deployment update and no manifest, so only a definition resolving to the version the deployment already runs is recorded. */
@@ -1326,13 +1399,7 @@ export class DeploymentWriterService {
   #assertResourcesUnchanged(submitted: GroupSpec[], onChain: OnChainGroupSpec[] | null): void {
     const changedGroup = onChain && findGroupWithChangedResources(submitted, onChain);
 
-    if (changedGroup) {
-      throw createError(
-        422,
-        `The SDL changes the resources of group "${changedGroup}". An update cannot change a deployment's groups, compute resources, replica counts or globally exposed ports, so create a new deployment for this SDL instead`,
-        { errorCode: RESOURCES_CHANGED_ERROR_CODE }
-      );
-    }
+    if (changedGroup) throw resourcesChangedError(changedGroup);
   }
 
   #rejectInvalidSdl(errors: ValidationError[]) {
