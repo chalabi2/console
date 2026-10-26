@@ -36,7 +36,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@akashnetwork/chain-sdk": "1.0.0-alpha.45",
+    "@akashnetwork/chain-sdk": "file:../../vendor/akashnetwork-chain-sdk-1.0.0-alpha.46.aep87.1.tgz",
     "@akashnetwork/drizzle-ability": "*",
     "@akashnetwork/env-loader": "*",
     "@akashnetwork/http-sdk": "*",

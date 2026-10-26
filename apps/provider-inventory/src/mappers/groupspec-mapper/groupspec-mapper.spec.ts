@@ -153,7 +153,7 @@ describe(mapGroupSpecToResourceUnits.name, () => {
       endpoints: []
     };
 
-    const resources: GroupSpecJSON["resources"] = [{ resource: baseResource, count: input.count ?? 1, price: { denom: "uakt", amount: "1000" } }];
+    const resources: GroupSpecJSON["resources"] = [{ resource: baseResource, count: input.count ?? 1, price: { denom: "uakt", amount: "1000" }, volumes: [] }];
 
     if (input.multiGroup) {
       resources.push({
@@ -163,7 +163,8 @@ describe(mapGroupSpecToResourceUnits.name, () => {
           gpu: { units: { val: 1n }, attributes: [{ key: "vendor/nvidia/model/a100", value: "true" }] }
         },
         count: 1,
-        price: { denom: "uakt", amount: "5000" }
+        price: { denom: "uakt", amount: "5000" },
+        volumes: []
       });
     }
 

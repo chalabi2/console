@@ -345,7 +345,8 @@ function makeRequest(
           endpoints: []
         },
         count: 1,
-        price: { denom: "uakt", amount: "1000" }
+        price: { denom: "uakt", amount: "1000" },
+        volumes: []
       }
     ]
   };

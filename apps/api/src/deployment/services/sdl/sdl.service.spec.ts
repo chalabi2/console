@@ -470,38 +470,18 @@ const OTHER_AUDITOR = "akash1another7awdyj3n2sav7xfx76adc6dnmlx64";
 
 describe(SdlService.name, () => {
   describe("generateManifest", () => {
-    it("rejects a memory size given without a unit instead of throwing", async () => {
-      const { result } = await setup({ sdl: VALID_SDL.replace("size: 512Mi", 'size: "1073741824"') });
+    it("reads a memory size given as a bare byte count as that many bytes", async () => {
+      const { result: byteCount } = await setup({ sdl: VALID_SDL.replace("size: 512Mi", 'size: "536870912"') });
+      const { result: withUnit } = await setup({ sdl: VALID_SDL });
 
-      expect(result).toEqual({
-        ok: false,
-        value: [
-          {
-            schemaPath: "",
-            instancePath: "/profiles/compute",
-            keyword: "size",
-            params: {},
-            message: 'memory or storage size "1073741824" must be a number with a unit, such as 512Mi or 1Gi'
-          }
-        ]
-      });
+      expect(byteCount).toEqual(withUnit);
     });
 
-    it("rejects a storage size given without a unit instead of throwing", async () => {
-      const { result } = await setup({ sdl: VALID_SDL.replace("size: 1Gi", 'size: "1073741824"') });
+    it("reads a storage size given as a bare byte count as that many bytes", async () => {
+      const { result: byteCount } = await setup({ sdl: VALID_SDL.replace("size: 1Gi", 'size: "1073741824"') });
+      const { result: withUnit } = await setup({ sdl: VALID_SDL });
 
-      expect(result).toEqual({
-        ok: false,
-        value: [
-          {
-            schemaPath: "",
-            instancePath: "/profiles/compute",
-            keyword: "size",
-            params: {},
-            message: 'memory or storage size "1073741824" must be a number with a unit, such as 512Mi or 1Gi'
-          }
-        ]
-      });
+      expect(byteCount).toEqual(withUnit);
     });
 
     it("builds a storage size given with a unit into the bytes it names", async () => {
@@ -975,14 +955,13 @@ describe(SdlService.name, () => {
       expect(result.ok).toBe(false);
     });
 
-    it("returns the manifest generator's refusal for a storage size given without a unit instead of throwing", async () => {
+    it("resolves a storage size given as a bare byte count as that many bytes", async () => {
       const { service } = await setup();
 
-      const result = await service.generateResolvedManifest({ sdl: VALID_SDL.replace("size: 1Gi", 'size: "1073741824"'), secrets: {} });
+      const byteCount = await service.generateResolvedManifest({ sdl: VALID_SDL.replace("size: 1Gi", 'size: "1073741824"'), secrets: {} });
+      const withUnit = await service.generateResolvedManifest({ sdl: VALID_SDL, secrets: {} });
 
-      expect(errorsOf(result)).toEqual([
-        expect.objectContaining({ message: 'memory or storage size "1073741824" must be a number with a unit, such as 512Mi or 1Gi' })
-      ]);
+      expect(byteCount).toEqual(withUnit);
     });
 
     it("returns errors rather than throwing for a manifest the generator fails on only once it is read", async () => {

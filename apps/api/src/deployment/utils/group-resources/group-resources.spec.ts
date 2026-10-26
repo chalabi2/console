@@ -87,6 +87,7 @@ function createGroup(units: { cpuMillis?: bigint; memoryBytes?: bigint; count?: 
   return {
     name: "test",
     requirements: undefined,
+    volume: undefined,
     resources: units.map(unit => ({
       resource: {
         id: 1,
@@ -97,7 +98,8 @@ function createGroup(units: { cpuMillis?: bigint; memoryBytes?: bigint; count?: 
         endpoints: []
       },
       count: unit.count ?? 1,
-      price: undefined
+      price: undefined,
+      volumes: []
     }))
   };
 }

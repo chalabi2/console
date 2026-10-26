@@ -40,4 +40,5 @@ export function mapGroupSpecToResourceUnits(request: Omit<GroupSpecJSON, "name">
   });
 }
 
-export type GroupSpecJSON = ToJSON<GroupSpec>;
+/** Only a storage-only volume group carries a volume policy, so the JSON of every other group leaves it out. */
+export type GroupSpecJSON = ToJSON<Omit<GroupSpec, "volume">> & Partial<ToJSON<Pick<GroupSpec, "volume">>>;

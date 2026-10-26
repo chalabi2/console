@@ -9,20 +9,18 @@ import type { GeneratedType } from "@cosmjs/proto-signing";
 import { Registry } from "@cosmjs/proto-signing";
 import type { Provider } from "@nestjs/common";
 
+/** Spread one namespace at a time, as a single spread of all of them makes a union too large for the compiler. */
+function registryTypesOf(...namespaces: object[]): Array<[string, GeneratedType]> {
+  return namespaces
+    .flatMap(namespace => Object.values(namespace))
+    .filter(x => "$type" in x)
+    .map(x => ["/" + x.$type, x as GeneratedType]);
+}
+
 export const RegistryProvider: Provider<Registry> = {
   provide: Registry,
   useFactory: () => {
-    const akashTypes: ReadonlyArray<[string, GeneratedType]> = [
-      ...Object.values(v1),
-      ...Object.values(v1beta4),
-      ...Object.values(v1beta5),
-      ...Object.values(cosmosv1),
-      ...Object.values(cosmosv1beta1),
-      ...Object.values(cosmosv1alpha1),
-      ...Object.values(cosmosv2alpha1)
-    ]
-      .filter(x => "$type" in x)
-      .map(x => ["/" + x.$type, x as unknown as GeneratedType]);
+    const akashTypes: ReadonlyArray<[string, GeneratedType]> = registryTypesOf(v1, v1beta4, v1beta5, cosmosv1, cosmosv1beta1, cosmosv1alpha1, cosmosv2alpha1);
 
     return new Registry(akashTypes);
   }

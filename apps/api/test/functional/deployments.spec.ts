@@ -1551,9 +1551,9 @@ describe("Deployments API", () => {
       expect(result.message).toContain("Invalid SDL");
     });
 
-    it("returns 400 naming the value when the SDL gives a memory size without a unit", async () => {
+    it("returns 400 naming the value when the SDL gives a memory size that is not a size", async () => {
       const { userApiKeySecret } = await mockUser();
-      const yml = fs.readFileSync(path.resolve(__dirname, "../mocks/hello-world-sdl.yml"), "utf8").replace("size: 512Mi", 'size: "1073741824"');
+      const yml = fs.readFileSync(path.resolve(__dirname, "../mocks/hello-world-sdl.yml"), "utf8").replace("size: 512Mi", 'size: "lots"');
 
       const response = await app.request("/v1/deployments", {
         method: "POST",
@@ -1568,21 +1568,21 @@ describe("Deployments API", () => {
 
       expect(response.status).toBe(400);
       const result = (await response.json()) as { message: string };
-      expect(result.message).toBe('Invalid SDL: memory or storage size "1073741824" must be a number with a unit, such as 512Mi or 1Gi');
+      expect(result.message).toBe('Invalid SDL: memory or storage size "lots" must be a number with a unit, such as 512Mi or 1Gi');
     });
 
-    it("returns 400 naming the value, recording and broadcasting nothing, when the SDL gives a storage size without a unit", async () => {
+    it("returns 400 naming the value, recording and broadcasting nothing, when the SDL gives a storage size that is not a size", async () => {
       const { user, userApiKeySecret } = await mockPersistedUser();
 
       const response = await app.request("/v1/deployments", {
         method: "POST",
-        body: JSON.stringify({ data: { sdl: HELLO_WORLD_SDL.replace("- size: 512Mi", '- size: "1073741824"') } }),
+        body: JSON.stringify({ data: { sdl: HELLO_WORLD_SDL.replace("- size: 512Mi", '- size: "lots"') } }),
         headers: new Headers({ "Content-Type": "application/json", "x-api-key": userApiKeySecret })
       });
 
       expect(response.status).toBe(400);
       expect(await response.json()).toMatchObject({
-        message: 'Invalid SDL: memory or storage size "1073741824" must be a number with a unit, such as 512Mi or 1Gi'
+        message: 'Invalid SDL: memory or storage size "lots" must be a number with a unit, such as 512Mi or 1Gi'
       });
       expect(await container.resolve(DeploymentSettingRepository).findOneBy({ userId: user.id })).toBeUndefined();
       expect(signerService.executeDecodedTxByUserWallet).not.toHaveBeenCalled();
@@ -2576,7 +2576,7 @@ describe("Deployments API", () => {
       expect(await deploymentSettingRepository.findOneBy({ userId: user.id, dseq })).toMatchObject({ sdl: HELLO_WORLD_SDL, manifestVersion: "BAUG" });
     });
 
-    it("refuses an sdl giving a storage size without a unit, recording, broadcasting and sending nothing", async () => {
+    it("refuses an sdl giving a storage size that is not a size, recording, broadcasting and sending nothing", async () => {
       const { userApiKeySecret, user, wallets } = await mockPersistedUser();
       const dseq = "1234";
       await setupDeploymentInfoMock(wallets, dseq);
@@ -2585,13 +2585,13 @@ describe("Deployments API", () => {
 
       const response = await app.request(`/v1/deployments/${dseq}`, {
         method: "PUT",
-        body: JSON.stringify({ data: { sdl: HELLO_WORLD_SDL.replace("- size: 512Mi", '- size: "1073741824"') } }),
+        body: JSON.stringify({ data: { sdl: HELLO_WORLD_SDL.replace("- size: 512Mi", '- size: "lots"') } }),
         headers: new Headers({ "Content-Type": "application/json", "x-api-key": userApiKeySecret })
       });
 
       expect(response.status).toBe(400);
       expect(await response.json()).toMatchObject({
-        message: 'Invalid SDL: memory or storage size "1073741824" must be a number with a unit, such as 512Mi or 1Gi'
+        message: 'Invalid SDL: memory or storage size "lots" must be a number with a unit, such as 512Mi or 1Gi'
       });
       expect(signerService.executeDecodedTxByUserWallet).not.toHaveBeenCalled();
       expect(providerService.sendManifest).not.toHaveBeenCalled();
