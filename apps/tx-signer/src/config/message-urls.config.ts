@@ -1,6 +1,6 @@
 import { DepositAuthorization, MsgAccountDeposit, MsgCreateCertificate, MsgMintACT } from "@akashnetwork/chain-sdk/private-types/akash.v1";
 import { MsgCloseDeployment, MsgCreateDeployment, MsgUpdateDeployment } from "@akashnetwork/chain-sdk/private-types/akash.v1beta4";
-import { MsgCreateLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
+import { MsgCancelLeaseResize, MsgCreateLease, MsgResizeLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
 import { MsgGrant, MsgGrantAllowance, MsgRevoke, MsgRevokeAllowance } from "@akashnetwork/chain-sdk/private-types/cosmos.v1beta1";
 import { BasicAllowance } from "@akashnetwork/chain-sdk/private-types/cosmos.v1beta1";
 
@@ -25,6 +25,8 @@ export const DERIVED_WALLET_MESSAGE_TYPE_URLS = [
   `/${MsgUpdateDeployment.$type}`,
   `/${MsgCloseDeployment.$type}`,
   `/${MsgCreateLease.$type}`,
+  `/${MsgResizeLease.$type}`,
+  `/${MsgCancelLeaseResize.$type}`,
   `/${MsgAccountDeposit.$type}`,
   `/${MsgCreateCertificate.$type}`
 ] as const;

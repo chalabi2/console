@@ -1,5 +1,6 @@
 import { DepositAuthorization, MsgAccountDeposit, MsgCreateCertificate, MsgMintACT, Scope } from "@akashnetwork/chain-sdk/private-types/akash.v1";
 import { MsgCreateDeployment } from "@akashnetwork/chain-sdk/private-types/akash.v1beta4";
+import { MsgCancelLeaseResize, MsgResizeLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
 import { BasicAllowance, type Coin, MsgGrant, MsgGrantAllowance, MsgRevoke, MsgRevokeAllowance } from "@akashnetwork/chain-sdk/private-types/cosmos.v1beta1";
 import type { EncodeObject } from "@cosmjs/proto-signing";
 import { describe, expect, it } from "vitest";
@@ -29,6 +30,48 @@ describe(TxPolicyService.name, () => {
       const message = encodeObject(`/${MsgCreateDeployment.$type}`, MsgCreateDeployment.fromPartial({ id: { owner: OTHER_ADDRESS, dseq: 1 } }));
 
       expect(() => service.assertActingOnBehalfOf([message], SIGNER_ADDRESS)).toThrow(/may not be signed by this wallet/);
+    });
+
+    it("accepts a resize of a lease on a deployment the signing wallet owns", () => {
+      const { service } = setup();
+      const message = encodeObject(`/${MsgResizeLease.$type}`, MsgResizeLease.fromPartial({ id: { owner: SIGNER_ADDRESS, dseq: 1, provider: OTHER_ADDRESS } }));
+
+      expect(() => service.assertActingOnBehalfOf([message], SIGNER_ADDRESS)).not.toThrow();
+    });
+
+    it("rejects a resize of a lease on a deployment owned by another account", () => {
+      const { service } = setup();
+      const message = encodeObject(`/${MsgResizeLease.$type}`, MsgResizeLease.fromPartial({ id: { owner: OTHER_ADDRESS, dseq: 1, provider: SIGNER_ADDRESS } }));
+
+      expect(() => service.assertActingOnBehalfOf([message], SIGNER_ADDRESS)).toThrow(/may not be signed by this wallet/);
+    });
+
+    it("accepts canceling a pending resize on a deployment the signing wallet owns", () => {
+      const { service } = setup();
+      const message = encodeObject(`/${MsgCancelLeaseResize.$type}`, MsgCancelLeaseResize.fromPartial({ id: { owner: SIGNER_ADDRESS, dseq: 1 } }));
+
+      expect(() => service.assertActingOnBehalfOf([message], SIGNER_ADDRESS)).not.toThrow();
+    });
+
+    it("rejects canceling a pending resize on a deployment owned by another account", () => {
+      const { service } = setup();
+      const message = encodeObject(`/${MsgCancelLeaseResize.$type}`, MsgCancelLeaseResize.fromPartial({ id: { owner: OTHER_ADDRESS, dseq: 1 } }));
+
+      expect(() => service.assertActingOnBehalfOf([message], SIGNER_ADDRESS)).toThrow(/may not be signed by this wallet/);
+    });
+
+    it("rejects a resize that names no lease", () => {
+      const { service } = setup();
+      const message = encodeObject(`/${MsgResizeLease.$type}`, MsgResizeLease.fromPartial({}));
+
+      expect(() => service.assertActingOnBehalfOf([message], SIGNER_ADDRESS)).toThrow(/an unset address/);
+    });
+
+    it("rejects canceling a resize that names no lease", () => {
+      const { service } = setup();
+      const message = encodeObject(`/${MsgCancelLeaseResize.$type}`, MsgCancelLeaseResize.fromPartial({}));
+
+      expect(() => service.assertActingOnBehalfOf([message], SIGNER_ADDRESS)).toThrow(/an unset address/);
     });
 
     it("rejects a certificate issued for another account", () => {
