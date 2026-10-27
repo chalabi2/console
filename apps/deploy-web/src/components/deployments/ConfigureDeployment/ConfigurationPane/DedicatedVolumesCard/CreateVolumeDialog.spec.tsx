@@ -40,6 +40,76 @@ describe(CreateVolumeDialog.name, () => {
     expect(yaml.load(create.mock.calls[0][0].sdl)).toMatchObject({ volumes: { data: { lifecycle: { reclaim: "delete" } } } });
   });
 
+  it("creates a volume of the type chosen", async () => {
+    const { create } = setup({});
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Volume type" }));
+    await userEvent.click(screen.getByRole("option", { name: "SSD" }));
+    await userEvent.click(screen.getByRole("button", { name: "Create volume" }));
+
+    expect(yaml.load(create.mock.calls[0][0].sdl)).toMatchObject({ volumes: { data: { class: "beta2" } } });
+  });
+
+  it("labels the volume's name", () => {
+    setup({});
+
+    expect(screen.getByLabelText("Name")).toHaveValue("data");
+  });
+
+  it("refuses a size below one", async () => {
+    setup({});
+
+    await userEvent.clear(screen.getByRole("spinbutton"));
+    await userEvent.type(screen.getByRole("spinbutton"), "-1");
+
+    expect(screen.getByRole("button", { name: "Create volume" })).toBeDisabled();
+  });
+
+  it.each([
+    { case: "is described", step: { kind: "editing" as const } },
+    { case: "has providers to choose from", step: { kind: "choosing" as const, dseq: DSEQ } }
+  ])("shows no error while the volume $case without one", ({ step }) => {
+    setup({ step, bids: [BID] });
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("offers no providers while the volume is described", () => {
+    setup({});
+
+    expect(screen.queryByText(/Choose the provider/)).not.toBeInTheDocument();
+  });
+
+  it("leaves the description once providers bid", () => {
+    setup({ step: { kind: "choosing", dseq: DSEQ }, bids: [BID] });
+
+    expect(screen.queryByLabelText("Volume name")).not.toBeInTheDocument();
+  });
+
+  it("looks up the providers that bid", () => {
+    const { useProvidersByAddresses } = setup({ step: { kind: "choosing", dseq: DSEQ }, bids: [BID] });
+
+    expect(useProvidersByAddresses).toHaveBeenLastCalledWith(["akash1provider"]);
+  });
+
+  it("abandons the volume when the dialog is dismissed", async () => {
+    const { abandon, onOpenChange } = setup({ step: { kind: "choosing", dseq: DSEQ }, bids: [BID] });
+
+    await userEvent.keyboard("{Escape}");
+
+    expect(abandon).toHaveBeenCalled();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("stays open when dismissed while the lease is sent", async () => {
+    const { abandon, onOpenChange } = setup({ step: { kind: "leasing", dseq: DSEQ }, bids: [BID] });
+
+    await userEvent.keyboard("{Escape}");
+
+    expect(abandon).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
   it.each([
     { case: "is no DNS label", name: "Data_1", message: "Use lowercase letters, digits and dashes, starting and ending with a letter or digit." },
     { case: "the wallet already gave a volume", name: "logs", message: "You already have a volume named logs." }
@@ -139,11 +209,14 @@ describe(CreateVolumeDialog.name, () => {
     const abandon = vi.fn(async () => undefined);
     const onCreated = vi.fn();
     const onOpenChange = vi.fn();
+    const useProvidersByAddresses = vi.fn((_addresses: readonly string[]) =>
+      mock<ReturnType<typeof DEPENDENCIES.useProvidersByAddresses>>({ data: input.providers ?? [] })
+    );
     const dependencies = {
       ...DEPENDENCIES,
       useCreateVolume: () => ({ step: input.step ?? { kind: "editing" as const }, bids: input.bids ?? [], create, lease, abandon }),
       useWallet: () => mock<ReturnType<typeof DEPENDENCIES.useWallet>>({ address: OWNER }),
-      useProvidersByAddresses: () => mock<ReturnType<typeof DEPENDENCIES.useProvidersByAddresses>>({ data: input.providers ?? [] }),
+      useProvidersByAddresses,
       PricePerTimeUnit: ({ perBlockValue, denom }: { perBlockValue: number; denom: string }) => <span>{`price ${perBlockValue} ${denom}`}</span>
     };
 
@@ -158,6 +231,6 @@ describe(CreateVolumeDialog.name, () => {
       />
     );
 
-    return { create, lease, abandon, onCreated, onOpenChange };
+    return { create, lease, abandon, onCreated, onOpenChange, useProvidersByAddresses };
   }
 });

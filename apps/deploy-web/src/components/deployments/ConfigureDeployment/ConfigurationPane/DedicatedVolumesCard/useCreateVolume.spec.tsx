@@ -29,6 +29,32 @@ describe(useCreateVolume.name, () => {
     expect(useListBids).toHaveBeenLastCalledWith(DSEQ, { refetchInterval: 2000 });
   });
 
+  it("reports the create while it is sent", async () => {
+    const { result } = setup({ pending: "create" });
+
+    act(() => void result.current.create({ name: "data", sdl: SDL }));
+
+    expect(result.current.step).toEqual({ kind: "creating" });
+  });
+
+  it("reports the lease while it is sent, and stops asking for bids", async () => {
+    const { result, useListBids } = setup({ pending: "lease" });
+    await act(() => result.current.create({ name: "data", sdl: SDL }));
+
+    act(() => void result.current.lease("akash1provider"));
+
+    expect(result.current.step).toEqual({ kind: "leasing", dseq: DSEQ });
+    expect(useListBids).toHaveBeenLastCalledWith(undefined, { refetchInterval: 2000 });
+  });
+
+  it("offers no bids before any arrive", async () => {
+    const { result } = setup({ bids: null });
+
+    await act(() => result.current.create({ name: "data", sdl: SDL }));
+
+    expect(result.current.bids).toEqual([]);
+  });
+
   it("asks for no bids before the volume's deployment exists", () => {
     const { useListBids } = setup({});
 
@@ -133,10 +159,17 @@ describe(useCreateVolume.name, () => {
     createFailure?: Error;
     leaseFailure?: Error;
     closeFailure?: Error;
-    bids?: Array<{ provider: string; state: string; amount: string; denom: string }>;
+    pending?: "create" | "lease";
+    bids?: Array<{ provider: string; state: string; amount: string; denom: string }> | null;
   }) {
-    const createDeployment = vi.fn(() => (input.createFailure ? Promise.reject(input.createFailure) : Promise.resolve({ data: { dseq: DSEQ, manifest: "" } })));
-    const createLease = vi.fn(() => (input.leaseFailure ? Promise.reject(input.leaseFailure) : Promise.resolve({ data: {} })));
+    const createDeployment = vi.fn(() => {
+      if (input.pending === "create") return new Promise(() => undefined);
+      return input.createFailure ? Promise.reject(input.createFailure) : Promise.resolve({ data: { dseq: DSEQ, manifest: "" } });
+    });
+    const createLease = vi.fn(() => {
+      if (input.pending === "lease") return new Promise(() => undefined);
+      return input.leaseFailure ? Promise.reject(input.leaseFailure) : Promise.resolve({ data: {} });
+    });
     const closeDeployment = vi.fn(() => (input.closeFailure ? Promise.reject(input.closeFailure) : Promise.resolve({ data: { success: true } })));
     const api = mockDeep<AppDIContainer["api"]>();
     api.v1.createDeployment.useMutation.mockReturnValue(
@@ -145,15 +178,18 @@ describe(useCreateVolume.name, () => {
     api.v1.createLease.useMutation.mockReturnValue(mock<ReturnType<typeof api.v1.createLease.useMutation>>({ mutateAsync: createLease as never }));
     api.v1.closeDeployment.useMutation.mockReturnValue(mock<ReturnType<typeof api.v1.closeDeployment.useMutation>>({ mutateAsync: closeDeployment as never }));
     const bidList = Object.assign(mock<ReturnType<typeof DEPENDENCIES.useListBids>>(), {
-      data: {
-        data: (input.bids ?? []).map(bid => ({
-          bid: {
-            id: { owner: OWNER, dseq: DSEQ, gseq: 1, oseq: 1, provider: bid.provider, bseq: 0 },
-            state: bid.state,
-            price: { amount: bid.amount, denom: bid.denom }
-          }
-        }))
-      }
+      data:
+        input.bids === null
+          ? undefined
+          : {
+              data: (input.bids ?? []).map(bid => ({
+                bid: {
+                  id: { owner: OWNER, dseq: DSEQ, gseq: 1, oseq: 1, provider: bid.provider, bseq: 0 },
+                  state: bid.state,
+                  price: { amount: bid.amount, denom: bid.denom }
+                }
+              }))
+            }
     });
     const useListBids = vi.fn(() => bidList);
     const queryClient = mock<ReturnType<typeof DEPENDENCIES.useQueryClient>>();
