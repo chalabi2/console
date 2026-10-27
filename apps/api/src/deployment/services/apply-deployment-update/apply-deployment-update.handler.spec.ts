@@ -61,7 +61,7 @@ describe(ApplyDeploymentUpdateHandler.name, () => {
 
   it("leaves the update pending on a job that waits for the provider when the update asks for a resize", async () => {
     const { handler, deploymentWriterService, activityService, jobQueueService } = setup();
-    deploymentWriterService.applySavedPatch.mockResolvedValue("awaiting-resize");
+    deploymentWriterService.applySavedPatch.mockResolvedValue({ awaiting: "resize" });
 
     await handler.handle({ ...PAYLOAD, owner: "akash1owner", resizes: true }, FIRST_ATTEMPT);
 
@@ -73,9 +73,22 @@ describe(ApplyDeploymentUpdateHandler.name, () => {
     expect(activityService.settle).not.toHaveBeenCalled();
   });
 
+  it("waits on a volume's resize by the group and size it asks for, since a volume's size is no part of the version", async () => {
+    const { handler, deploymentWriterService, jobQueueService } = setup();
+    const volume = { gseq: 1, size: "2147483648" };
+    deploymentWriterService.applySavedPatch.mockResolvedValue({ awaiting: "resize", volume });
+
+    await handler.handle({ ...PAYLOAD, owner: "akash1owner", resizes: true }, FIRST_ATTEMPT);
+
+    expect(jobQueueService.enqueue).toHaveBeenCalledWith(
+      new AwaitLeaseResize({ ...SAVED, owner: "akash1owner", organizationId: "organization-1", activityId: "activity-1", volume }),
+      { singletonKey: "awaitLeaseResize.activity-1", ...AWAIT_LEASE_RESIZE_RETRY_OPTIONS }
+    );
+  });
+
   it("cannot wait on a resize for an update queued without its wallet's address", async () => {
     const { handler, deploymentWriterService, jobQueueService } = setup();
-    deploymentWriterService.applySavedPatch.mockResolvedValue("awaiting-resize");
+    deploymentWriterService.applySavedPatch.mockResolvedValue({ awaiting: "resize" });
 
     await expect(handler.handle(PAYLOAD, FIRST_ATTEMPT)).rejects.toThrow("Deployment 100 awaits a resize from an update queued without its owner");
     expect(jobQueueService.enqueue).not.toHaveBeenCalled();

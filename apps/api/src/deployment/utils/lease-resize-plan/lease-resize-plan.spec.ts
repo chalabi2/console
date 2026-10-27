@@ -1,11 +1,11 @@
 import type { SDLInput } from "@akashnetwork/chain-sdk";
 import { generateManifest } from "@akashnetwork/chain-sdk";
-import { Endpoint_Kind, GroupSpec, type ResourceUnit } from "@akashnetwork/chain-sdk/private-types/akash.v1beta4";
+import { Endpoint_Kind, GroupSpec, ResourceUnit } from "@akashnetwork/chain-sdk/private-types/akash.v1beta4";
 import type { DeploymentInfo } from "@akashnetwork/http-sdk";
 import { describe, expect, it } from "vitest";
 
 import type { SdlManifest } from "@src/deployment/services/sdl/sdl.service";
-import { resourceChangeOf } from "./lease-resize-plan";
+import { resourceChangeOf, volumeSizeOf } from "./lease-resize-plan";
 
 describe(resourceChangeOf.name, () => {
   const GI = 1024n ** 3n;
@@ -216,6 +216,16 @@ describe(resourceChangeOf.name, () => {
     expect(resourceChangeOf([withMoreCpu(held)], [onChainGroupOf(held)])).toMatchObject({ kind: "resize" });
   });
 
+  it("records no volume size in the plan of a group that leases no volume", () => {
+    const resized = sdl();
+    resized.profiles.compute.web.resources.cpu.units = 4;
+
+    expect(resourceChangeOf(groupSpecsOf(resized), [onChainGroup()])).toEqual({
+      kind: "resize",
+      plan: expect.not.objectContaining({ volumeSize: expect.anything() })
+    });
+  });
+
   it("resizes the compute of a unit that keeps mounting the same volumes", () => {
     const held = withVolumesMounted(groupSpecOf(sdl()));
 
@@ -250,7 +260,7 @@ describe(resourceChangeOf.name, () => {
   });
 
   it.each([
-    { change: "grows", size: 20n * GI, expected: { kind: "resize" } },
+    { change: "grows", size: 20n * GI, expected: { kind: "resize", plan: { volumeSize: 20n * GI } } },
     { change: "shrinks", size: 5n * GI, expected: { kind: "unresizable", reason: 'it shrinks volume "data", which can only grow' } }
   ])("lets the volume of a volume group grow but never shrink: it $change", ({ size, expected }) => {
     const held = GroupSpec.fromPartial({ ...groupSpecOf(sdlWithPersistentStorage("10Gi")), volume: { vid: "pg-data" } });
@@ -400,5 +410,33 @@ describe(resourceChangeOf.name, () => {
     });
 
     return group;
+  }
+});
+
+describe(volumeSizeOf.name, () => {
+  const PERSISTENT = [{ key: "persistent", value: "true" }];
+
+  it("reads the size of the persistent storage entry, the volume itself", () => {
+    const resources = [
+      unitWith([
+        { name: "scratch", quantity: { val: 5n }, attributes: [] },
+        { name: "data", quantity: { val: 10n }, attributes: PERSISTENT }
+      ])
+    ];
+
+    expect(volumeSizeOf(resources)).toBe(10n);
+  });
+
+  it.each([
+    { case: "no unit", resources: [] },
+    { case: "a unit without resources", resources: [ResourceUnit.fromPartial({ count: 1 })] },
+    { case: "no persistent storage entry", resources: [unitWith([{ name: "scratch", quantity: { val: 5n }, attributes: [] }])] },
+    { case: "a persistent entry without a quantity", resources: [unitWith([{ name: "data", attributes: PERSISTENT }])] }
+  ])("finds no size in $case", ({ resources }) => {
+    expect(volumeSizeOf(resources)).toBe(0n);
+  });
+
+  function unitWith(storage: Array<{ name: string; quantity?: { val: bigint }; attributes: Array<{ key: string; value: string }> }>): ResourceUnit {
+    return ResourceUnit.fromPartial({ resource: { id: 1, storage }, count: 1 });
   }
 });

@@ -2317,7 +2317,7 @@ export interface paths {
     head?: never;
     /**
      * Patch a deployment
-     * @description Patches the SDL the console stored for this deployment, or renames the deployment, or both; the SDL is never accepted from the request. Only the services named are touched. A `name` on its own touches no definition, so it renames a deployment the console holds no SDL for and sends neither a deployment update nor a manifest. Such a rename also reports every lease `status` as null, because it asks no provider for one. A patched environment variable is re-appended to its service's env list, so the order shown by GET may differ afterwards. A replaced secret takes effect through the deployment update this patch sends, not in the workload already running. The definition is recorded before the deployment update is sent, so an update that fails leaves the console describing a manifest version the deployment was never updated to. Re-sending the identical request repairs that: it recomputes the same manifest version, is accepted rather than refused, and goes on to send the update and push the manifest. A seal bound to the SDL is the exception: the first attempt replaced the SDL it was sealed against, so the same `sealedSecrets` answer 403 until the same values are sealed against the SDL GET now returns.
+     * @description Patches the SDL the console stored for this deployment, or renames the deployment, or both; the SDL is never accepted from the request. Only the services and volumes named are touched. A `name` on its own touches no definition, so it renames a deployment the console holds no SDL for and sends neither a deployment update nor a manifest. Such a rename also reports every lease `status` as null, because it asks no provider for one. A patched environment variable is re-appended to its service's env list, so the order shown by GET may differ afterwards. A replaced secret takes effect through the deployment update this patch sends, not in the workload already running. The definition is recorded before the deployment update is sent, so an update that fails leaves the console describing a manifest version the deployment was never updated to. Re-sending the identical request repairs that: it recomputes the same manifest version, is accepted rather than refused, and goes on to send the update and push the manifest. A seal bound to the SDL is the exception: the first attempt replaced the SDL it was sealed against, so the same `sealedSecrets` answer 403 until the same values are sealed against the SDL GET now returns.
      */
     patch: operations["patchDeployment"];
     trace?: never;
@@ -2632,7 +2632,32 @@ export interface paths {
                         denom: string;
                         amount: string;
                       };
+                      volumes?: {
+                        owner: string;
+                        dseq: string;
+                        gseq: number;
+                        name: string;
+                      }[];
                     }[];
+                    volume?: {
+                      vid: string;
+                      reclaim: string;
+                      retention: string;
+                      max_attachments: number;
+                      max_replicas: number;
+                      adopt?: {
+                        owner: string;
+                        dseq: string;
+                        gseq: number;
+                        name: string;
+                      } | null;
+                      replica_of?: {
+                        owner: string;
+                        dseq: string;
+                        gseq: number;
+                        name: string;
+                      } | null;
+                    } | null;
                   };
                   created_at: string;
                 }[];
@@ -10476,6 +10501,13 @@ export interface operations {
                 count?: number;
               };
             };
+            /** @description Keyed by the name the SDL's volumes section gives a volume this deployment leases itself. Growing one asks the deployment's provider to resize the volume's lease in place, and so runs in the background. A volume another deployment leases can only be grown through that deployment. */
+            volumes?: {
+              [key: string]: {
+                /** @description The volume's new size, such as 20Gi. A volume can only grow. */
+                size: string;
+              };
+            };
             /** @description Renames the deployment. Supplied on its own it is the only patch that touches no definition, so it works on a deployment the console holds no SDL for and sends neither a deployment update nor a manifest. */
             name?: string;
             /** @description Compact JWE sealing a flat name-to-value map, as on create, but holding only the names this patch replaces. Omitted names keep the values the deployment already stores. Its presence also says which values are secret, as on create: a patch carrying a seal stores the env values it writes as submitted, while one carrying none seals them. A seal of an empty map is how a caller writes plain variables without replacing any secret. */
@@ -10638,7 +10670,7 @@ export interface operations {
           };
         };
       };
-      /** @description The patch passed every check and was saved, and will be applied in the background. A patch that changes a service's `resources` or `count` is always applied this way, because the deployment's provider has to accept the resize of its lease first; it is recorded as failed if the provider declines or does not answer in time, and the deployment keeps the resources it had while the definition stays recorded. A patch that changes nothing then asks for the resize again */
+      /** @description The patch passed every check and was saved, and will be applied in the background. A patch that changes a service's `resources` or `count`, or grows a volume, is always applied this way, because the deployment's provider has to accept the resize of its lease first; it is recorded as failed if the provider declines or does not answer in time, and the deployment keeps the resources it had while the definition stays recorded. A patch that changes nothing then asks for the resize again */
       202: {
         headers: {
           [name: string]: unknown;
@@ -10657,7 +10689,7 @@ export interface operations {
           };
         };
       };
-      /** @description The patch names a service, port or volume the stored SDL does not declare, supplies a secret name it does not reference, leaves a reference with no value, moves a container port onto one the service already exposes, or moves a port in a way that would change its endpoint kind */
+      /** @description The patch names a service, port or volume the stored SDL does not declare, grows a volume another deployment leases, supplies a secret name it does not reference, leaves a reference with no value, moves a container port onto one the service already exposes, or moves a port in a way that would change its endpoint kind */
       400: {
         headers: {
           [name: string]: unknown;
@@ -11023,7 +11055,32 @@ export interface operations {
                         denom: string;
                         amount: string;
                       };
+                      volumes?: {
+                        owner: string;
+                        dseq: string;
+                        gseq: number;
+                        name: string;
+                      }[];
                     }[];
+                    volume?: {
+                      vid: string;
+                      reclaim: string;
+                      retention: string;
+                      max_attachments: number;
+                      max_replicas: number;
+                      adopt?: {
+                        owner: string;
+                        dseq: string;
+                        gseq: number;
+                        name: string;
+                      } | null;
+                      replica_of?: {
+                        owner: string;
+                        dseq: string;
+                        gseq: number;
+                        name: string;
+                      } | null;
+                    } | null;
                   };
                   created_at: string;
                 }[];

@@ -18,6 +18,25 @@ const DenominatedValueSchema = z.object({
   amount: z.string()
 });
 
+/** A mount of a volume leased by its own deployment (AEP-87), named by that deployment's group. */
+const VolumeRefSchema = z.object({
+  owner: z.string(),
+  dseq: z.string(),
+  gseq: z.number(),
+  name: z.string()
+});
+
+/** Present on a volume's own group only; a compute group reports it as null, and a chain without volumes leaves it out. */
+const VolumePolicySchema = z.object({
+  vid: z.string(),
+  reclaim: z.string(),
+  retention: z.string(),
+  max_attachments: z.number(),
+  max_replicas: z.number(),
+  adopt: VolumeRefSchema.nullable().optional(),
+  replica_of: VolumeRefSchema.nullable().optional()
+});
+
 export const DeploymentInfoSchema = z.object({
   deployment: z.object({
     id: z.object({
@@ -71,9 +90,11 @@ export const DeploymentInfoSchema = z.object({
               endpoints: z.array(z.object({ kind: z.string(), sequence_number: z.number() }))
             }),
             count: z.number(),
-            price: DenominatedValueSchema
+            price: DenominatedValueSchema,
+            volumes: z.array(VolumeRefSchema).optional()
           })
-        )
+        ),
+        volume: VolumePolicySchema.nullable().optional()
       }),
       created_at: z.string()
     })

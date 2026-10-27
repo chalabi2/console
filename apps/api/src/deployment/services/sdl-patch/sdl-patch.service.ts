@@ -2,7 +2,7 @@ import type { SDLInput } from "@akashnetwork/chain-sdk";
 import createError from "http-errors";
 import { singleton } from "tsyringe";
 
-import type { PatchService } from "@src/deployment/http-schemas/deployment.schema";
+import type { PatchService, PatchVolume } from "@src/deployment/http-schemas/deployment.schema";
 import { MAX_ECHOED_REFERENCE_LENGTH, ownValue, readEnvDeclaration } from "@src/deployment/services/sdl-reference/sdl-reference.service";
 
 type SdlServiceNode = NonNullable<SDLInput["services"]>[string];
@@ -189,6 +189,25 @@ export class SdlPatchService {
     }
 
     return written;
+  }
+
+  /** Only a volume this deployment declares has a size to grow; one it mounts from another deployment is grown through that deployment. */
+  applyVolumes(document: SDLInput, patches: Record<string, PatchVolume>): void {
+    const volumes = this.#volumesOf(document);
+
+    for (const [volumeName, { size }] of Object.entries(patches)) {
+      const volume = ownValue(volumes, volumeName);
+
+      if (!volume) {
+        throw this.#reject(`"${echo(volumeName)}" is not a volume of this deployment`);
+      }
+
+      if (!("size" in volume)) {
+        throw this.#reject(`volume "${echo(volumeName)}" is leased by another deployment, so it can only be grown through that deployment`);
+      }
+
+      volume.size = size;
+    }
   }
 
   /** Writes only a compute profile and placement the service alone reaches, because one another service shares would be resized with it. */
@@ -516,6 +535,10 @@ export class SdlPatchService {
     const services = document?.services;
 
     return services && typeof services === "object" ? services : {};
+  }
+
+  #volumesOf(document: SDLInput): NonNullable<SDLInput["volumes"]> {
+    return document.volumes ?? {};
   }
 
   #reject(message: string) {

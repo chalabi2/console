@@ -1,4 +1,5 @@
 import { type EnqueueOptions, type Job, JOB_NAME } from "@src/core";
+import type { AwaitedVolume } from "@src/deployment/services/lease-resize/lease-resize.service";
 
 /** Waits for the provider to answer the lease resize an update asked for, then pushes the update's manifest, or records why the deployment keeps its resources. */
 export class AwaitLeaseResize implements Job {
@@ -14,6 +15,8 @@ export class AwaitLeaseResize implements Job {
       dseq: string;
       /** The saved version the resize carries, which the deployment runs once the provider accepts. */
       manifestVersion: string;
+      /** The group and size a volume's resize asks for, since a volume's size is no part of the version and its accept leaves the version as it was. */
+      volume?: AwaitedVolume;
       walletId: number;
       /** Absent for a deployment filed before organizations, whose row only its user reaches. */
       organizationId?: string;

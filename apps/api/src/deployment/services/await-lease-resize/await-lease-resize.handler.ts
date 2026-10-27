@@ -39,11 +39,11 @@ export class AwaitLeaseResizeHandler implements JobHandler<AwaitLeaseResize> {
     ];
   }
 
-  async handle({ userId, owner, dseq, manifestVersion, walletId, activityId }: JobPayload<AwaitLeaseResize>, job?: JobMeta): Promise<void> {
+  async handle({ userId, owner, dseq, manifestVersion, volume, walletId, activityId }: JobPayload<AwaitLeaseResize>, job?: JobMeta): Promise<void> {
     if (!(await this.activityService.isPending(activityId))) return;
 
     const update = { userId, dseq, manifestVersion };
-    const outcome = await this.leaseResizeService.outcomeOf({ owner, dseq, manifestVersion });
+    const outcome = await this.leaseResizeService.outcomeOf({ owner, dseq, manifestVersion, volume });
 
     if (outcome === "accepted") return await this.#pushTheResizedManifest({ ...update, walletId, activityId }, job);
 

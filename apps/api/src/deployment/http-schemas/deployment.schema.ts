@@ -446,6 +446,10 @@ export const PatchServiceSchema = z
   })
   .partial();
 
+export const PatchVolumeSchema = z.object({
+  size: ResourceSizeSchema.openapi({ description: "The volume's new size, such as 20Gi. A volume can only grow." })
+});
+
 export const UpdateDeploymentResponseSchema = z.object({
   data: DeploymentResponseSchema
 });
@@ -465,8 +469,13 @@ export const PatchDeploymentParamsSchema = z.object({
 });
 
 /** A seal and a name are each a write no service patch can describe, so naming a service and changing none of its fields is how a caller asks for a rotation and nothing else. */
-function patchesSomething(data: { services?: Record<string, Record<string, unknown>>; name?: string; sealedSecrets?: string }): boolean {
-  return !!data.sealedSecrets || !!data.name || assignsAnyServiceField(data.services);
+function patchesSomething(data: {
+  services?: Record<string, Record<string, unknown>>;
+  volumes?: Record<string, PatchVolume>;
+  name?: string;
+  sealedSecrets?: string;
+}): boolean {
+  return !!data.sealedSecrets || !!data.name || assignsAnyServiceField(data.services) || Object.keys(data.volumes ?? {}).length > 0;
 }
 
 /** `.refine` rather than a length rule on the record itself, which this zod version does not offer. */
@@ -481,6 +490,10 @@ export const PatchDeploymentRequestSchema = z.object({
           description:
             "Keyed by service name. Only the named services are touched; omitted services keep their current definition. Omit it entirely to patch nothing about the definition, which is how a deployment is renamed on its own."
         }),
+      volumes: z.record(z.string(), PatchVolumeSchema).optional().openapi({
+        description:
+          "Keyed by the name the SDL's volumes section gives a volume this deployment leases itself. Growing one asks the deployment's provider to resize the volume's lease in place, and so runs in the background. A volume another deployment leases can only be grown through that deployment."
+      }),
       name: DeploymentNameSchema.optional().openapi({
         description:
           "Renames the deployment. Supplied on its own it is the only patch that touches no definition, so it works on a deployment the console holds no SDL for and sends neither a deployment update nor a manifest."
@@ -776,6 +789,7 @@ export type DepositDeploymentRequest = z.infer<typeof DepositDeploymentRequestSc
 export type DepositDeploymentResponse = z.infer<typeof DepositDeploymentResponseSchema>;
 export type UpdateDeploymentRequest = z.infer<typeof UpdateDeploymentRequestSchema>;
 export type PatchService = z.infer<typeof PatchServiceSchema>;
+export type PatchVolume = z.infer<typeof PatchVolumeSchema>;
 export type CancelDeploymentResizeResponse = z.infer<typeof CancelDeploymentResizeResponseSchema>;
 export type PatchDeploymentRequest = z.infer<typeof PatchDeploymentRequestSchema>;
 export type PatchDeploymentResponse = z.infer<typeof PatchDeploymentResponseSchema>;

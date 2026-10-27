@@ -460,7 +460,7 @@ const patchRoute = createRoute({
   path: "/v1/deployments/{dseq}",
   summary: "Patch a deployment",
   description:
-    "Patches the SDL the console stored for this deployment, or renames the deployment, or both; the SDL is never accepted from the request. Only the services named are touched. A `name` on its own touches no definition, so it renames a deployment the console holds no SDL for and sends neither a deployment update nor a manifest. Such a rename also reports every lease `status` as null, because it asks no provider for one. A patched environment variable is re-appended to its service's env list, so the order shown by GET may differ afterwards. A replaced secret takes effect through the deployment update this patch sends, not in the workload already running. The definition is recorded before the deployment update is sent, so an update that fails leaves the console describing a manifest version the deployment was never updated to. Re-sending the identical request repairs that: it recomputes the same manifest version, is accepted rather than refused, and goes on to send the update and push the manifest. A seal bound to the SDL is the exception: the first attempt replaced the SDL it was sealed against, so the same `sealedSecrets` answer 403 until the same values are sealed against the SDL GET now returns.",
+    "Patches the SDL the console stored for this deployment, or renames the deployment, or both; the SDL is never accepted from the request. Only the services and volumes named are touched. A `name` on its own touches no definition, so it renames a deployment the console holds no SDL for and sends neither a deployment update nor a manifest. Such a rename also reports every lease `status` as null, because it asks no provider for one. A patched environment variable is re-appended to its service's env list, so the order shown by GET may differ afterwards. A replaced secret takes effect through the deployment update this patch sends, not in the workload already running. The definition is recorded before the deployment update is sent, so an update that fails leaves the console describing a manifest version the deployment was never updated to. Re-sending the identical request repairs that: it recomputes the same manifest version, is accepted rather than refused, and goes on to send the update and push the manifest. A seal bound to the SDL is the exception: the first attempt replaced the SDL it was sealed against, so the same `sealedSecrets` answer 403 until the same values are sealed against the SDL GET now returns.",
   operationId: "patchDeployment",
   tags: ["Deployments"],
   security: SECURITY_BEARER_OR_API_KEY,
@@ -488,7 +488,7 @@ const patchRoute = createRoute({
     },
     202: {
       description:
-        "The patch passed every check and was saved, and will be applied in the background. A patch that changes a service's `resources` or `count` is always applied this way, because the deployment's provider has to accept the resize of its lease first; it is recorded as failed if the provider declines or does not answer in time, and the deployment keeps the resources it had while the definition stays recorded. A patch that changes nothing then asks for the resize again",
+        "The patch passed every check and was saved, and will be applied in the background. A patch that changes a service's `resources` or `count`, or grows a volume, is always applied this way, because the deployment's provider has to accept the resize of its lease first; it is recorded as failed if the provider declines or does not answer in time, and the deployment keeps the resources it had while the definition stays recorded. A patch that changes nothing then asks for the resize again",
       content: {
         "application/json": {
           schema: PatchDeploymentAcceptedResponseSchema
@@ -497,7 +497,7 @@ const patchRoute = createRoute({
     },
     400: {
       description:
-        "The patch names a service, port or volume the stored SDL does not declare, supplies a secret name it does not reference, leaves a reference with no value, moves a container port onto one the service already exposes, or moves a port in a way that would change its endpoint kind",
+        "The patch names a service, port or volume the stored SDL does not declare, grows a volume another deployment leases, supplies a secret name it does not reference, leaves a reference with no value, moves a container port onto one the service already exposes, or moves a port in a way that would change its endpoint kind",
       content: {
         "application/json": {
           schema: ErrorResponseSchema

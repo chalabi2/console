@@ -1167,6 +1167,39 @@ describe(SdlPatchService.name, () => {
     }
   });
 
+  describe("volumes", () => {
+    it("grows a volume the deployment declares to the size the patch sets, keeping the rest of its declaration", () => {
+      const { service, document } = setup({ services: {}, volumes: { data: { size: "1Gi", class: "beta3" } } });
+
+      service.applyVolumes(document, { data: { size: "2Gi" } });
+
+      expect(document.volumes).toEqual({ data: { size: "2Gi", class: "beta3" } });
+    });
+
+    it.each(["other", "constructor"])("refuses %s, a volume the deployment does not declare, naming it", volumeName => {
+      const { service, document } = setup({ services: {}, volumes: { data: { size: "1Gi" } } });
+
+      expect(() => service.applyVolumes(document, { [volumeName]: { size: "2Gi" } })).toThrow(
+        expect.objectContaining({ status: 400, message: `"${volumeName}" is not a volume of this deployment` })
+      );
+    });
+
+    it("refuses to grow a volume another deployment leases, which only that deployment can grow", () => {
+      const { service, document } = setup({ services: {}, volumes: { data: { external: { dseq: 12 } } } });
+
+      expect(() => service.applyVolumes(document, { data: { size: "2Gi" } })).toThrow(
+        expect.objectContaining({ status: 400, message: 'volume "data" is leased by another deployment, so it can only be grown through that deployment' })
+      );
+      expect(document.volumes).toEqual({ data: { external: { dseq: 12 } } });
+    });
+
+    it("refuses a volume in a document that declares none", () => {
+      const { service, document } = setup({ services: {} });
+
+      expect(() => service.applyVolumes(document, { data: { size: "2Gi" } })).toThrow(expect.objectContaining({ status: 400 }));
+    });
+  });
+
   function setup(input: {
     services: Record<string, SDLInput["services"][string]>;
     compute?: SDLInput["profiles"]["compute"];
@@ -1177,6 +1210,7 @@ describe(SdlPatchService.name, () => {
     shareStorage?: NonNullable<NonNullable<SDLInput["services"][string]["params"]>["storage"]>;
     shareHttpOptions?: NonNullable<NonNullable<SDLInput["services"][string]["expose"]>[number]["http_options"]>;
     aliasWebAs?: string;
+    volumes?: SDLInput["volumes"];
   }) {
     const services = { ...input.services };
 
@@ -1191,10 +1225,11 @@ describe(SdlPatchService.name, () => {
     if (input.aliasWebAs) services[input.aliasWebAs] = services.web;
 
     const document: SDLInput = {
-      version: "2.0",
+      version: input.volumes ? "2.2" : "2.0",
       services,
       profiles: { compute: input.compute ?? {}, placement: {} },
-      deployment: input.deployment ?? {}
+      deployment: input.deployment ?? {},
+      ...(input.volumes && { volumes: input.volumes })
     };
 
     return { service: new SdlPatchService(), document };

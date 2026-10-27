@@ -192,6 +192,25 @@ function computeGroupSpecOf(input: { cpu: string; name?: string }): GroupSpec {
   return GroupSpec.fromJSON(computeGroupSpecJsonOf(input));
 }
 
+const GI = 1024n ** 3n;
+
+function volumeGroupSpecJsonOf(size: bigint): OnChainGroupSpec {
+  const group = computeGroupSpecJsonOf({ cpu: "0" });
+
+  return {
+    ...group,
+    resources: group.resources.map(unit => ({
+      ...unit,
+      resource: { ...unit.resource, storage: [{ name: "data", quantity: { val: size.toString() }, attributes: [{ key: "persistent", value: "true" }] }] }
+    })),
+    volume: { vid: "data", reclaim: "retain", retention: "3600s", max_attachments: 1, max_replicas: 0 }
+  };
+}
+
+function volumeGroupSpecOf(size: bigint): GroupSpec {
+  return GroupSpec.fromJSON(volumeGroupSpecJsonOf(size));
+}
+
 function groupsHolding(groupSpecs: OnChainGroupSpec[]): DeploymentInfo["groups"] {
   return groupSpecs.map((group_spec, index) => ({ ...createDeploymentInfoGroupSeed({ gseq: index + 1 }), group_spec }));
 }
@@ -3138,6 +3157,46 @@ describe(DeploymentWriterService.name, () => {
       ""
     ].join("\n");
 
+    const VOLUME_SDL = [
+      'version: "2.2"',
+      "volumes:",
+      "  data:",
+      "    size: 1Gi",
+      "    class: beta3",
+      "services:",
+      "  web:",
+      "    image: nginx",
+      "profiles:",
+      "  compute:",
+      "    web:",
+      "      resources:",
+      "        cpu:",
+      "          units: 0.1",
+      "        memory:",
+      "          size: 128Mi",
+      "        storage:",
+      "          - size: 128Mi",
+      "  placement:",
+      "    dcloud:",
+      "      pricing:",
+      "        web:",
+      "          denom: uact",
+      "          amount: 1000",
+      "        data:",
+      "          denom: uact",
+      "          amount: 150",
+      "deployment:",
+      "  web:",
+      "    dcloud:",
+      "      profile: web",
+      "      count: 1",
+      "  data:",
+      "    dcloud:",
+      "      profile: data",
+      "      count: 1",
+      ""
+    ].join("\n");
+
     /** A deployment created WITH a client seal keeps ordinary env values in the clear, which is the state that made the document-wide derivation reachable. */
     const STORED_SDL_WITH_PLAINTEXT = [
       'version: "2.0"',
@@ -3602,6 +3661,25 @@ describe(DeploymentWriterService.name, () => {
         const { service, ability, leaseResizeService } = setup({ storedVersion: Buffer.from(new Uint8Array([1, 2, 3])).toString("base64") });
 
         await service.patchByUserIdAndDseq("user-1", "1234", { services: { web: { image: "x" } } }, ability).catch(() => undefined);
+
+        expect(leaseResizeService.planFor).toHaveBeenCalledWith(expect.objectContaining({ mayResize: true }));
+      });
+
+      it("records the size a patch grows a volume to, letting the patch resize", async () => {
+        const { service, ability, deploymentSettingRepository, leaseResizeService } = setup({ sdl: VOLUME_SDL });
+
+        await service.patchByUserIdAndDseq("user-1", "1234", { volumes: { data: { size: "2Gi" } } }, ability);
+
+        expect(leaseResizeService.planFor).toHaveBeenCalledWith(expect.objectContaining({ mayResize: true }));
+        expect(deploymentSettingRepository.replaceDefinitionIfVersionMatches).toHaveBeenCalledWith(
+          expect.objectContaining({ sdl: expect.stringMatching(/data:\n\s+size: 2Gi/) })
+        );
+      });
+
+      it("lets a patch that grows a volume resize even as it sets other fields", async () => {
+        const { service, ability, leaseResizeService } = setup({ sdl: VOLUME_SDL });
+
+        await service.patchByUserIdAndDseq("user-1", "1234", { services: { web: { image: "nginx:1.27" } }, volumes: { data: { size: "2Gi" } } }, ability);
 
         expect(leaseResizeService.planFor).toHaveBeenCalledWith(expect.objectContaining({ mayResize: true }));
       });
@@ -4682,7 +4760,7 @@ describe(DeploymentWriterService.name, () => {
 
       const outcome = await service.applySavedPatch(savedResize, ability);
 
-      expect(outcome).toBe("awaiting-resize");
+      expect(outcome).toEqual({ awaiting: "resize" });
       expect(leaseResizeService.request).toHaveBeenCalledWith({
         wallet,
         deployment: (await deploymentReaderService.findWithGroupSpecsByWalletAndDseq.mock.results[0].value).deployment,
@@ -4692,6 +4770,26 @@ describe(DeploymentWriterService.name, () => {
         assertMayStillSign: undefined
       });
       expect(signerService.executeDecodedTxByUserWallet).not.toHaveBeenCalled();
+      expect(providerService.sendManifest).not.toHaveBeenCalled();
+    });
+
+    it("waits on a volume's resize by its group and the size it asks for, pushing nothing yet", async () => {
+      const { service, ability, leaseResizeService, providerService } = setup({
+        resolvedGroupSpecs: [volumeGroupSpecOf(2n * GI)],
+        onChainGroupSpecs: [volumeGroupSpecJsonOf(GI)]
+      });
+
+      const outcome = await service.applySavedPatch(savedResize, ability);
+
+      expect(outcome).toEqual({ awaiting: "resize", volume: { gseq: 1, size: (2n * GI).toString() } });
+      expect(leaseResizeService.request).toHaveBeenCalledWith(expect.objectContaining({ plan: expect.objectContaining({ volumeSize: 2n * GI }) }));
+      expect(providerService.sendManifest).not.toHaveBeenCalled();
+    });
+
+    it("pushes no manifest to a deployment that runs no service, as a volume's own deployment does", async () => {
+      const { service, ability, providerService } = setup({ serviceNames: [] });
+
+      expect(await service.applySavedPatch(savedPatch, ability)).toBe("applied");
       expect(providerService.sendManifest).not.toHaveBeenCalled();
     });
 

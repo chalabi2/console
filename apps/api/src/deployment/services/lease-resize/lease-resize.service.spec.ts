@@ -1,4 +1,4 @@
-import { GroupSpec } from "@akashnetwork/chain-sdk/private-types/akash.v1beta4";
+import { GroupSpec, type ResourceUnit } from "@akashnetwork/chain-sdk/private-types/akash.v1beta4";
 import { LeaseResize } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
 import type { DeploymentHttpService } from "@akashnetwork/http-sdk";
 import { describe, expect, it } from "vitest";
@@ -22,6 +22,7 @@ describe(LeaseResizeService.name, () => {
   const DSEQ = "1234";
   const VERSION = new Uint8Array([1, 2, 3]);
   const VERSION_BASE64 = Buffer.from(VERSION).toString("base64");
+  const GI = 1024n ** 3n;
 
   describe("isAvailableTo", () => {
     it("is unavailable to a user the flag leaves out, without asking the chain", async () => {
@@ -241,6 +242,60 @@ describe(LeaseResizeService.name, () => {
       expect(signerService.executeDecodedTxByUserWallet).toHaveBeenCalledTimes(1);
     });
 
+    it("asks for a volume's growth carrying no manifest version, which the chain refuses on a volume", async () => {
+      const { service, signerService } = setup();
+      const wallet = createInitializedUserWallet({ address: OWNER });
+      const grown = volumeGroupSpec(2n * GI);
+
+      await service.request({
+        wallet,
+        deployment: deploymentWithLeases(),
+        plan: { gseq: 1, groupName: "data", resources: grown.resources, volumeSize: 2n * GI },
+        manifestVersion: VERSION,
+        actingUserId: "user-1"
+      });
+
+      expect(signerService.executeDecodedTxByUserWallet).toHaveBeenCalledWith(
+        wallet,
+        [
+          new RpcMessageService(mockConfigService<BillingConfigService>({ DEPLOYMENT_GRANT_DENOM: "uact" })).getResizeLeaseMsg({
+            lease: { owner: OWNER, dseq: DSEQ, gseq: 1, oseq: 1, provider: "akash1provider", bseq: 0 },
+            resources: grown.resources,
+            hash: new Uint8Array()
+          })
+        ],
+        { actingUserId: "user-1" }
+      );
+    });
+
+    it("sends nothing when the deployment already holds the request for the volume's size", async () => {
+      const { service, signerService } = setup({ pending: pendingResize({ hash: new Uint8Array(), resources: volumeGroupSpec(2n * GI).resources }) });
+
+      await service.request({
+        wallet: createInitializedUserWallet({ address: OWNER }),
+        deployment: deploymentWithLeases(),
+        plan: { gseq: 1, groupName: "data", resources: volumeGroupSpec(2n * GI).resources, volumeSize: 2n * GI },
+        manifestVersion: VERSION,
+        actingUserId: "user-1"
+      });
+
+      expect(signerService.executeDecodedTxByUserWallet).not.toHaveBeenCalled();
+    });
+
+    it("asks again when the pending request asks the volume for another size", async () => {
+      const { service, signerService } = setup({ pending: pendingResize({ hash: new Uint8Array(), resources: volumeGroupSpec(3n * GI).resources }) });
+
+      await service.request({
+        wallet: createInitializedUserWallet({ address: OWNER }),
+        deployment: deploymentWithLeases(),
+        plan: { gseq: 1, groupName: "data", resources: volumeGroupSpec(2n * GI).resources, volumeSize: 2n * GI },
+        manifestVersion: VERSION,
+        actingUserId: "user-1"
+      });
+
+      expect(signerService.executeDecodedTxByUserWallet).toHaveBeenCalledTimes(1);
+    });
+
     it("refuses with 409 a group with no active lease", async () => {
       const { service, signerService } = setup();
 
@@ -292,6 +347,45 @@ describe(LeaseResizeService.name, () => {
       expect(await service.outcomeOf({ owner: OWNER, dseq: DSEQ, manifestVersion: VERSION_BASE64 }, NOW)).toBe("declined");
     });
 
+    describe("of a volume, whose size is no part of the version", () => {
+      const VOLUME = { gseq: 1, size: (2n * GI).toString() };
+
+      it("is pending while the request for the volume's size waits for its provider", async () => {
+        const { service } = setup({
+          pending: pendingResize({ hash: new Uint8Array(), resources: volumeGroupSpec(2n * GI).resources, expiresAt: NOW.getTime() / 1000 + 60 })
+        });
+
+        expect(await service.outcomeOf({ owner: OWNER, dseq: DSEQ, manifestVersion: VERSION_BASE64, volume: VOLUME }, NOW)).toBe("pending");
+      });
+
+      it("is accepted once the volume's group holds the size, though the deployment keeps its version", async () => {
+        const { service } = setup({ chainHash: "T0xE", chainVolumeSize: VOLUME.size });
+
+        expect(await service.outcomeOf({ owner: OWNER, dseq: DSEQ, manifestVersion: VERSION_BASE64, volume: VOLUME }, NOW)).toBe("accepted");
+      });
+
+      it("is declined once the request is gone and the volume's group keeps its size, though the deployment runs the version", async () => {
+        const { service } = setup({ chainHash: VERSION_BASE64, chainVolumeSize: GI.toString() });
+
+        expect(await service.outcomeOf({ owner: OWNER, dseq: DSEQ, manifestVersion: VERSION_BASE64, volume: VOLUME }, NOW)).toBe("declined");
+      });
+
+      it("is not pending on a request for another group's volume, however large", async () => {
+        const { service } = setup({
+          pending: pendingResize({ hash: new Uint8Array(), resources: volumeGroupSpec(2n * GI).resources, gseq: 2 }),
+          chainVolumeSize: GI.toString()
+        });
+
+        expect(await service.outcomeOf({ owner: OWNER, dseq: DSEQ, manifestVersion: VERSION_BASE64, volume: VOLUME }, NOW)).toBe("declined");
+      });
+
+      it("is declined when the deployment no longer has the volume's group", async () => {
+        const { service } = setup({ chainHash: VERSION_BASE64, chainVolumeSize: VOLUME.size });
+
+        expect(await service.outcomeOf({ owner: OWNER, dseq: DSEQ, manifestVersion: VERSION_BASE64, volume: { ...VOLUME, gseq: 2 } }, NOW)).toBe("declined");
+      });
+    });
+
     it("throws when the chain cannot describe the deployment, so the check runs again", async () => {
       const { service, deploymentHttpService } = setup();
       deploymentHttpService.findByOwnerAndDseq.mockResolvedValue({ code: 5, message: "not found", details: [] });
@@ -328,12 +422,29 @@ describe(LeaseResizeService.name, () => {
     });
   });
 
-  function pendingResize({ hash = VERSION, expiresAt = 4_000_000_000 }: { hash?: Uint8Array; expiresAt?: number } = {}) {
+  function pendingResize({
+    hash = VERSION,
+    expiresAt = 4_000_000_000,
+    resources = [],
+    gseq = 1
+  }: { hash?: Uint8Array; expiresAt?: number; resources?: ResourceUnit[]; gseq?: number } = {}) {
     return LeaseResize.fromPartial({
-      leaseId: { owner: OWNER, dseq: 1234n, gseq: 1, oseq: 1, provider: "akash1provider", bseq: 0 },
+      leaseId: { owner: OWNER, dseq: 1234n, gseq, oseq: 1, provider: "akash1provider", bseq: 0 },
+      resources,
       hash,
       expiresAt: BigInt(expiresAt)
     });
+  }
+
+  function onChainVolumeGroup(size: string) {
+    const group = onChainGroup({ name: "data" });
+    group.group_spec.resources[0].resource.storage = [{ name: "data", quantity: { val: size }, attributes: [{ key: "persistent", value: "true" }] }];
+
+    return group;
+  }
+
+  function volumeGroupSpec(size: bigint) {
+    return GroupSpec.fromPartial({ ...GroupSpec.fromJSON(onChainVolumeGroup(size.toString()).group_spec), volume: { vid: "data" } });
   }
 
   function onChainGroup({ name = "dcloud", gseq = 1, cpu = "1000", gpu = "0" }: { name?: string; gseq?: number; cpu?: string; gpu?: string } = {}) {
@@ -372,7 +483,7 @@ describe(LeaseResizeService.name, () => {
     };
   }
 
-  function setup(input: { flag?: boolean; enabledOnChain?: boolean; pending?: LeaseResize; chainHash?: string } = {}) {
+  function setup(input: { flag?: boolean; enabledOnChain?: boolean; pending?: LeaseResize; chainHash?: string; chainVolumeSize?: string } = {}) {
     const chainSdk = mockDeep<ChainSDK>();
     chainSdk.akash.market.v1beta5.getParams.mockResolvedValue({ params: { leaseResizeEnabled: input.enabledOnChain ?? false } } as never);
     chainSdk.akash.market.v1beta5.getLeaseResizes.mockResolvedValue({ leaseResizes: input.pending ? [input.pending] : [], pagination: undefined });
@@ -381,7 +492,8 @@ describe(LeaseResizeService.name, () => {
     const deploymentHttpService = mock<DeploymentHttpService>();
     deploymentHttpService.findByOwnerAndDseq.mockResolvedValue({
       ...createDeploymentInfoSeed({ owner: OWNER, dseq: DSEQ }),
-      deployment: { ...createDeploymentInfoSeed({ owner: OWNER, dseq: DSEQ }).deployment, hash: input.chainHash ?? "T0xE" }
+      deployment: { ...createDeploymentInfoSeed({ owner: OWNER, dseq: DSEQ }).deployment, hash: input.chainHash ?? "T0xE" },
+      ...(input.chainVolumeSize && { groups: [onChainVolumeGroup(input.chainVolumeSize)] })
     });
     const signerService = mock<ManagedSignerService>();
     const service = new LeaseResizeService(

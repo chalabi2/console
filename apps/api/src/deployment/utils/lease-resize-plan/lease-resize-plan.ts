@@ -13,6 +13,8 @@ export interface LeaseResizePlan {
   gseq: number;
   groupName: string;
   resources: ResourceUnit[];
+  /** Set for a volume's own group, whose size is no part of the manifest, so its resize is told apart by the size it asks for. */
+  volumeSize?: bigint;
 }
 
 export type ResourceChange =
@@ -46,7 +48,15 @@ export function resourceChangeOf(submitted: GroupSpec[], onChain: OnChainGroup[]
 
   if (reason) return { kind: "unresizable", groupName, reason };
 
-  return { kind: "resize", plan: { gseq: held.id.gseq, groupName, resources: next.resources } };
+  return {
+    kind: "resize",
+    plan: { gseq: held.id.gseq, groupName, resources: next.resources, ...(next.volume && { volumeSize: volumeSizeOf(next.resources) }) }
+  };
+}
+
+/** A volume's own group holds one unit whose persistent storage entry is the volume itself. */
+export function volumeSizeOf(resources: ResourceUnit[]): bigint {
+  return resources[0]?.resource?.storage.find(isPersistent)?.quantity?.val ?? 0n;
 }
 
 function resizeRefusalOf(current: GroupSpec, next: GroupSpec): string | undefined {

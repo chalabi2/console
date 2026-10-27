@@ -37,6 +37,17 @@ describe(AwaitLeaseResizeHandler.name, () => {
     expect(await findActivity(waiting.activityId)).toMatchObject({ status: "succeeded", meta: { dseq: waiting.dseq, manifestVersion: SAVED_VERSION } });
   });
 
+  it("asks after a volume's resize by the group and size its job carries through the queue", async () => {
+    const volume = { gseq: 1, size: "2147483648" };
+    const { waiting, awaitInBackground, outcomeOf, findActivity } = await setup({ outcome: "accepted", volume });
+
+    await awaitInBackground();
+
+    await expectJobCompleted(AwaitLeaseResize[JOB_NAME], { singletonKey: awaitLeaseResizeKeyFor(waiting.activityId) });
+    expect(outcomeOf).toHaveBeenCalledWith({ owner: waiting.owner, dseq: waiting.dseq, manifestVersion: SAVED_VERSION, volume });
+    expect(await findActivity(waiting.activityId)).toMatchObject({ status: "succeeded" });
+  });
+
   it("records the update as failed when the provider declines the resize", async () => {
     const { waiting, awaitInBackground, applySavedPatch, findActivity } = await setup({ outcome: "declined" });
 
@@ -62,7 +73,7 @@ describe(AwaitLeaseResizeHandler.name, () => {
     expect(await findActivity(waiting.activityId)).toMatchObject({ status: "pending" });
   });
 
-  async function setup(input: { outcome: LeaseResizeOutcome }) {
+  async function setup(input: { outcome: LeaseResizeOutcome; volume?: AwaitLeaseResize["data"]["volume"] }) {
     const { enqueue, startWorkers } = await jobWorkers();
     const activityRepository = container.resolve(ActivityRepository);
     const { user, wallet } = await seedUserWithWallet();
@@ -74,7 +85,7 @@ describe(AwaitLeaseResizeHandler.name, () => {
       meta: { dseq, manifestVersion: SAVED_VERSION }
     });
 
-    vi.spyOn(container.resolve(LeaseResizeService), "outcomeOf").mockResolvedValue(input.outcome);
+    const outcomeOf = vi.spyOn(container.resolve(LeaseResizeService), "outcomeOf").mockResolvedValue(input.outcome);
     const applySavedPatch = vi.spyOn(container.resolve(DeploymentWriterService), "applySavedPatch").mockResolvedValue("applied");
 
     const waiting: AwaitLeaseResize["data"] = {
@@ -83,12 +94,14 @@ describe(AwaitLeaseResizeHandler.name, () => {
       dseq,
       manifestVersion: SAVED_VERSION,
       walletId: wallet.id,
-      activityId: activity.id
+      activityId: activity.id,
+      ...(input.volume && { volume: input.volume })
     };
 
     return {
       waiting,
       applySavedPatch,
+      outcomeOf,
       awaitInBackground: async () => {
         await enqueue(new AwaitLeaseResize(waiting), {
           singletonKey: awaitLeaseResizeKeyFor(waiting.activityId),

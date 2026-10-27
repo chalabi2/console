@@ -57,6 +57,14 @@ describe(AwaitLeaseResizeHandler.name, () => {
     expect(activityService.settle).not.toHaveBeenCalled();
   });
 
+  it("asks after a volume's resize by the group and size the update asked for", async () => {
+    const { handler, leaseResizeService } = setup();
+    const volume = { gseq: 1, size: "2147483648" };
+
+    await expect(handler.handle({ ...PAYLOAD, volume }, FIRST_ATTEMPT)).rejects.toThrow("The lease resize of deployment 100 is still waiting for its provider");
+    expect(leaseResizeService.outcomeOf).toHaveBeenCalledWith({ owner: "akash1owner", dseq: "100", manifestVersion: "U0FWRUQ=", volume });
+  });
+
   it("records the resize as unanswered once it has waited as long as it may", async () => {
     const { handler, activityService } = setup({ outcome: "pending" });
 

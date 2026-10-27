@@ -52,7 +52,7 @@ export class ApplyDeploymentUpdateHandler implements JobHandler<ApplyDeploymentU
       return await this.#settleFailure(activityId, update, error, job);
     }
 
-    if (outcome === "awaiting-resize") return await this.#awaitTheResize({ ...update, walletId, owner, organizationId, activityId });
+    if (typeof outcome === "object") return await this.#awaitTheResize({ ...update, walletId, owner, organizationId, activityId, volume: outcome.volume });
 
     await this.activityService.settle(activityId, updatedActivityOf(update));
   }

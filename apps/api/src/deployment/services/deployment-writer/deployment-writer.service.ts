@@ -59,7 +59,7 @@ import {
 import { DeploymentPresenceService } from "@src/deployment/services/deployment-presence/deployment-presence.service";
 import { DeploymentProjectService } from "@src/deployment/services/deployment-project/deployment-project.service";
 import { LeaseGpuDetectionJobService } from "@src/deployment/services/lease-gpu-detection-job/lease-gpu-detection-job.service";
-import { LeaseResizeService, resourcesChangedError } from "@src/deployment/services/lease-resize/lease-resize.service";
+import { type AwaitedVolume, awaitedVolumeOf, LeaseResizeService, resourcesChangedError } from "@src/deployment/services/lease-resize/lease-resize.service";
 import {
   ReconcileDeploymentClose,
   reconcileDeploymentCloseOptionsFor
@@ -92,7 +92,7 @@ import { deriveDeploymentName } from "@src/deployment/utils/deployment-name/depl
 import { type LeaseResizePlan, resourceChangeOf } from "@src/deployment/utils/lease-resize-plan/lease-resize-plan";
 import type { StorableSdl, StoredSdlPosition, StoredSdlRefusal } from "@src/deployment/utils/sdl-for-storage/sdl-for-storage";
 import { parseSdlForStorage, sdlForStorage } from "@src/deployment/utils/sdl-for-storage/sdl-for-storage";
-import { findMissingGlobalExposure } from "@src/deployment/utils/sdl-manifest/sdl-manifest";
+import { findMissingGlobalExposure, runsNoService } from "@src/deployment/utils/sdl-manifest/sdl-manifest";
 import {
   failedUpdateActivityOf,
   pendingResizeActivityOf,
@@ -221,8 +221,11 @@ type PreparedPatch = {
   assertMayStillSign?: () => Promise<void>;
 };
 
-/** A resize is applied once its provider accepts it, so the apply that asked for one reports that instead of finishing. */
-export type SavedPatchOutcome = "replaced" | "applied" | "awaiting-resize";
+/** A resize is applied once its provider accepts it, so the apply that asked for one reports what it waits for instead of finishing. */
+export type SavedPatchOutcome = "replaced" | "applied" | AwaitingResize;
+
+/** A volume's size is no part of its manifest version, so the wait for a volume's resize is told the group and size it asked for. */
+export type AwaitingResize = { awaiting: "resize"; volume?: AwaitedVolume };
 
 type StoredDefinition = {
   sdl: string;
@@ -1038,6 +1041,7 @@ export class DeploymentWriterService {
     const document = parsed.document;
 
     const written = this.sdlPatchService.apply(document, input.services ?? {});
+    this.sdlPatchService.applyVolumes(document, input.volumes ?? {});
     const callerSaidWhichValuesAreSecret = !!input.sealedSecrets;
     const derived = this.sdlSecretsDerivationService.derive(document, { includeEnvValues: !callerSaidWhichValuesAreSecret, onlyAt: written });
     const patchedSdl = this.#serialize(parsed, { userId, dseq });
@@ -1059,7 +1063,11 @@ export class DeploymentWriterService {
       dseq,
       submitted: manifest.groupSpecs,
       groups,
-      mayResize: asksToResize(input.services ?? {}) || !assignsAnyServiceField(input.services) || recordedVersion === stored.manifestVersion
+      mayResize:
+        asksToResize(input.services ?? {}) ||
+        Object.keys(input.volumes ?? {}).length > 0 ||
+        !assignsAnyServiceField(input.services) ||
+        recordedVersion === stored.manifestVersion
     });
 
     if (resize && wallet.isTrialing) throw createError(402, TRIAL_LEASE_RESIZE_REFUSAL);
@@ -1146,18 +1154,10 @@ export class DeploymentWriterService {
     throw resourcesChangedError(change.kind === "several-groups" ? change.groupNames[0] : change.groupName);
   }
 
-  async #applyPrepared({
-    actingUserId,
-    wallet,
-    dseq,
-    resolved,
-    deployment,
-    resize,
-    assertMayStillSign
-  }: PreparedPatch): Promise<"applied" | "awaiting-resize"> {
+  async #applyPrepared({ actingUserId, wallet, dseq, resolved, deployment, resize, assertMayStillSign }: PreparedPatch): Promise<"applied" | AwaitingResize> {
     if (resize) {
       await this.leaseResizeService.request({ wallet, deployment, plan: resize, manifestVersion: resolved.manifestVersion, actingUserId, assertMayStillSign });
-      return "awaiting-resize";
+      return { awaiting: "resize", volume: awaitedVolumeOf(resize) };
     }
 
     await this.ensureDeploymentIsUpToDate({ userId: actingUserId, wallet, assertMayStillSign }, dseq, resolved.manifestVersion, deployment);
@@ -1437,6 +1437,8 @@ export class DeploymentWriterService {
     leases: DeploymentResponse["leases"];
     auth: { walletId: number };
   }): Promise<void> {
+    if (runsNoService(options.manifest)) return;
+
     const leaseProviders = new Set(leases.map(lease => lease.id.provider));
     for (const provider of leaseProviders) {
       await this.providerService.sendManifest({
