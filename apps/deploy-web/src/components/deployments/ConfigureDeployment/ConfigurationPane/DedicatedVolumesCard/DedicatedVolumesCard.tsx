@@ -19,6 +19,7 @@ import {
 } from "@akashnetwork/ui/components";
 import { DatabaseIcon, PlusIcon, TrashIcon } from "lucide-react";
 
+import { type CreatedVolume, CreateVolumeDialog } from "@src/components/volumes/CreateVolumeDialog/CreateVolumeDialog";
 import { type OwnedVolume, useOwnedVolumes, volumeKeyOf } from "@src/queries/useOwnedVolumes";
 import { useProvidersByAddresses } from "@src/queries/useProvidersQuery";
 import type { AttachedVolumeType, SdlBuilderFormValuesType } from "@src/types";
@@ -26,7 +27,6 @@ import { providerDisplayName } from "@src/utils/providerUtils";
 import { formatByteSize } from "@src/utils/unitUtils";
 import { dedicatedVolumesTooltip } from "../cardTooltips";
 import { SELECT_TRUNCATE_VALUE } from "../selectStyles";
-import { type CreatedVolume, CreateVolumeDialog } from "./CreateVolumeDialog";
 
 export const DEPENDENCIES = { CollapsibleCard, CreateVolumeDialog, useOwnedVolumes, useProvidersByAddresses };
 
@@ -53,7 +53,7 @@ export const DedicatedVolumesCard: FC<Props> = ({ serviceIndex, locked = false, 
   const mountedByOtherServices = new Set(
     (services ?? []).flatMap((service, index) => (index === serviceIndex ? [] : (service.volumes ?? []).map(volume => volumeKeyOf(volume))))
   );
-  const free = ownedVolumes.filter(volume => !!volume.provider && !volume.mountedBy && !mountedByOtherServices.has(volumeKeyOf(volume)));
+  const free = ownedVolumes.filter(volume => volume.state === "available" && !mountedByOtherServices.has(volumeKeyOf(volume)));
   const providerAddresses = [...new Set(mountedHere.flatMap(volume => ownedVolumes.find(owned => volumeKeyOf(owned) === volumeKeyOf(volume))?.provider ?? []))];
   const { data: providers } = d.useProvidersByAddresses(providerAddresses);
 

@@ -139,6 +139,21 @@ describe(TopNav.name, () => {
     expect(screen.queryByRole("link", { name: "Projects" })).not.toBeInTheDocument();
   });
 
+  it("links Volumes after Deployments once dedicated volumes are on", () => {
+    setup({ isAuthenticated: true, isVolumesEnabled: true, pathname: "/volumes" });
+
+    const links = [...screen.getByRole("navigation", { name: "Primary" }).querySelectorAll("a")].map(link => link.textContent);
+    expect(links.slice(0, 2)).toEqual(["Deployments", "Volumes"]);
+    expect(screen.getAllByRole("link", { name: "Volumes" })[0]).toHaveAttribute("href", "/volumes");
+    expect(screen.getAllByRole("link", { name: "Volumes" })[0]).toHaveAttribute("aria-current", "page");
+  });
+
+  it("leaves Volumes out while dedicated volumes are off", () => {
+    setup({ isAuthenticated: true, isVolumesEnabled: false });
+
+    expect(screen.queryByRole("link", { name: "Volumes" })).not.toBeInTheDocument();
+  });
+
   it("shows all settings items", async () => {
     setup({ isAuthenticated: true });
 
@@ -221,9 +236,14 @@ describe(TopNav.name, () => {
     isCommandMenuEnabled?: boolean;
     isOrganizationsEnabled?: boolean;
     projectsEnabled?: boolean;
+    isVolumesEnabled?: boolean;
   }) {
     const accountMenu = vi.fn<typeof DEPENDENCIES.TopNavAccountMenu>(() => <></>);
-    const enabledFlags = { ui_command_menu: input.isCommandMenuEnabled ?? false, organizations: input.isOrganizationsEnabled ?? false };
+    const enabledFlags = {
+      ui_command_menu: input.isCommandMenuEnabled ?? false,
+      organizations: input.isOrganizationsEnabled ?? false,
+      dedicated_volumes: input.isVolumesEnabled ?? false
+    };
     const useFlag = vi.fn<typeof DEPENDENCIES.useFlag>(flag => enabledFlags[flag as keyof typeof enabledFlags] ?? false);
     const organizationSwitcher = vi.fn<typeof DEPENDENCIES.OrganizationSwitcher>(() => <button type="button">Switch organization</button>);
     const createOrganizationDialog = vi.fn<typeof DEPENDENCIES.CreateOrganizationDialog>(({ onClose }) => (

@@ -13,7 +13,7 @@ import {
   SheetTrigger
 } from "@akashnetwork/ui/components";
 import { cn, REMOVE_SCROLL_CLASS_NAMES } from "@akashnetwork/ui/utils";
-import { ChevronDown, Cloud, Files, LayoutGrid, Menu, Server } from "lucide-react";
+import { ChevronDown, Cloud, Files, HardDrive, LayoutGrid, Menu, Server } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -81,9 +81,13 @@ export function TopNav({ dependencies: d = DEPENDENCIES, minimal = false }: Prop
     isOrganizationsEnabled && projectsEnabled
       ? [{ title: "Projects", url: UrlService.projects(), isActive: isRouteActive(pathname, "/projects"), icon: LayoutGrid }]
       : [];
+  const volumesLink: TopNavLink[] = d.useFlag("dedicated_volumes")
+    ? [{ title: "Volumes", url: UrlService.volumes(), isActive: isRouteActive(pathname, "/volumes"), icon: HardDrive }]
+    : [];
   const navLinks: TopNavLink[] = [
     ...projectsLink,
     { title: "Deployments", url: UrlService.deploymentList(), isActive: isRouteActive(pathname, "/deployments", "/new-deployment"), icon: Cloud },
+    ...volumesLink,
     { title: "Providers", url: UrlService.providers(), isActive: isRouteActive(pathname, "/providers"), icon: Server },
     { title: "Templates", url: UrlService.templates(), isActive: isRouteActive(pathname, "/templates"), icon: Files }
   ];

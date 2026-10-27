@@ -16,7 +16,7 @@ import userEvent from "@testing-library/user-event";
 
 const OWNER = "akash1owner";
 const PROVIDER = "akash1provider";
-const FREE: OwnedVolume = { name: "data", owner: OWNER, dseq: "100", sizeBytes: 1_073_741_824, storageClass: "beta3", provider: PROVIDER };
+const FREE: OwnedVolume = { name: "data", owner: OWNER, dseq: "100", sizeBytes: 1_073_741_824, storageClass: "beta3", state: "available", provider: PROVIDER };
 const MOUNTED: AttachedVolumeType = { name: "data", owner: OWNER, dseq: "100", mount: "/data", isReadOnly: false };
 const EMPTY_ROW: AttachedVolumeType = { name: "", dseq: "", mount: "/data", isReadOnly: false };
 const LOGS: OwnedVolume = { ...FREE, name: "logs", dseq: "101" };
@@ -55,8 +55,9 @@ describe(DedicatedVolumesCard.name, () => {
   });
 
   it.each([
-    { case: "holds no lease yet", volume: { ...FREE, provider: undefined } },
-    { case: "another deployment mounts", volume: { ...FREE, mountedBy: "200" } }
+    { case: "holds no lease yet", volume: { ...FREE, state: "unleased" as const, provider: undefined } },
+    { case: "another deployment mounts", volume: { ...FREE, state: "mounted" as const, mountedBy: "200" } },
+    { case: "is closing", volume: { ...FREE, state: "closing" as const } }
   ])("does not offer a volume that $case", async ({ volume }) => {
     setup({ volumes: [{ ...MOUNTED, name: "", dseq: "" }], owned: [volume] });
 
@@ -323,7 +324,7 @@ describe(DedicatedVolumesCard.name, () => {
     if (input.otherServiceVolumes) {
       values.services.push(defaultService(values.placements[0].id, { id: "worker", title: "worker", image: "nginx:1.27", volumes: input.otherServiceVolumes }));
     }
-    const useOwnedVolumes: typeof DEPENDENCIES.useOwnedVolumes = () => ({ volumes: input.owned ?? [FREE], isLoading: false });
+    const useOwnedVolumes: typeof DEPENDENCIES.useOwnedVolumes = () => ({ volumes: input.owned ?? [FREE], isLoading: false, isError: false, refetch: vi.fn() });
     const useProvidersByAddresses = vi.fn((_addresses: readonly string[]) =>
       mock<ReturnType<typeof DEPENDENCIES.useProvidersByAddresses>>({ data: input.providers ?? [] })
     );

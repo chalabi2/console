@@ -27,6 +27,7 @@ import {
   Spinner
 } from "@akashnetwork/ui/components";
 
+import { SELECT_TRUNCATE_VALUE } from "@src/components/deployments/ConfigureDeployment/ConfigurationPane/selectStyles";
 import { getProviderRegion } from "@src/components/deployments/DeploymentDetail/DeploymentPlacements/placementModel";
 import { PricePerTimeUnit } from "@src/components/shared/PricePerTimeUnit";
 import { useWallet } from "@src/context/WalletProvider";
@@ -38,7 +39,6 @@ import { PRICE_DISPLAY_PRECISION, udenomToDenom } from "@src/utils/mathHelpers";
 import { providerDisplayName } from "@src/utils/providerUtils";
 import { defaultPricing } from "@src/utils/sdl/data";
 import { volumeSdlOf } from "@src/utils/sdl/volumeSdl";
-import { SELECT_TRUNCATE_VALUE } from "../selectStyles";
 import { useCreateVolume, type VolumeBid } from "./useCreateVolume";
 
 export const DEPENDENCIES = { useCreateVolume, useWallet, useProvidersByAddresses, NumberUnitInput, PricePerTimeUnit };
@@ -119,7 +119,7 @@ export const CreateVolumeDialog: FC<Props> = ({ open, onOpenChange, placement, t
         <DialogV2Header>
           <DialogV2Title>Create a volume</DialogV2Title>
           <DialogV2Description id={descriptionId}>
-            A volume is leased as its own deployment, so its data outlives the deployments that mount it. This service will run on the provider you lease it
+            A volume is leased as its own deployment, so its data outlives the deployments that mount it. Whatever mounts it runs on the provider you lease it
             from.
           </DialogV2Description>
         </DialogV2Header>
@@ -199,7 +199,7 @@ export const CreateVolumeDialog: FC<Props> = ({ open, onOpenChange, placement, t
 
           {(step.kind === "choosing" || step.kind === "leasing") && (
             <>
-              <p className="text-sm text-muted-foreground">Choose the provider to lease {name} from. It also runs this service.</p>
+              <p className="text-sm text-muted-foreground">Choose the provider to lease {name} from. Deployments that mount it run there too.</p>
               {bids.length === 0 ? (
                 <p className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Spinner size="small" /> Waiting for providers to bid…

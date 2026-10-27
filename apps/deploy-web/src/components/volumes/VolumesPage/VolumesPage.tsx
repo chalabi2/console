@@ -1,0 +1,192 @@
+"use client";
+import type { FC } from "react";
+import { useState } from "react";
+import { Badge, Button, Skeleton, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@akashnetwork/ui/components";
+import { HardDrive, Plus, RefreshCw } from "lucide-react";
+import Link from "next/link";
+import { NextSeo } from "next-seo";
+
+import { useCountdown } from "@src/components/deployments/ReclamationBanner/useCountdown";
+import Layout from "@src/components/layout/Layout";
+import { PricePerTimeUnit } from "@src/components/shared/PricePerTimeUnit";
+import { CreateVolumeDialog } from "@src/components/volumes/CreateVolumeDialog/CreateVolumeDialog";
+import type { OwnedVolume } from "@src/queries/useOwnedVolumes";
+import { useOwnedVolumes } from "@src/queries/useOwnedVolumes";
+import { useProvidersByAddresses } from "@src/queries/useProvidersQuery";
+import type { ApiProviderList } from "@src/types/provider";
+import { persistentStorageTypes } from "@src/utils/akash/units";
+import { PRICE_DISPLAY_PRECISION, udenomToDenom } from "@src/utils/mathHelpers";
+import { providerDisplayName } from "@src/utils/providerUtils";
+import { defaultPlacement } from "@src/utils/sdl/data";
+import { formatByteSize } from "@src/utils/unitUtils";
+import { UrlService } from "@src/utils/urlUtils";
+
+export const DEPENDENCIES = { useOwnedVolumes, useProvidersByAddresses, useCountdown, Layout, NextSeo, CreateVolumeDialog, PricePerTimeUnit };
+
+const STANDALONE_PLACEMENT = defaultPlacement({ name: "dcloud" });
+const LOADING_ROWS = ["first", "second", "third"];
+
+export const VolumesPage: FC<{ dependencies?: typeof DEPENDENCIES }> = ({ dependencies: d = DEPENDENCIES }) => {
+  const { volumes, isLoading, isError, refetch } = d.useOwnedVolumes();
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const { data: providers } = d.useProvidersByAddresses(volumes.flatMap(volume => volume.provider ?? []));
+  const openCreate = () => setIsCreateOpen(true);
+  const hasNoVolumes = !isLoading && volumes.length === 0;
+
+  return (
+    <d.Layout background="dots" isLoading={isLoading} disableContainer>
+      <d.NextSeo title="Volumes" />
+
+      <div className="flex min-h-[60px] shrink-0 items-center border-b border-border bg-background py-2">
+        <div className="container flex flex-wrap items-center gap-3 px-4 sm:px-6">
+          <h1 className="mr-auto whitespace-nowrap text-xl font-bold leading-7 tracking-[-0.02em]">Volumes</h1>
+          <Button size="sm" onClick={openCreate}>
+            <Plus className="mr-2 h-4 w-4" />
+            Create volume
+          </Button>
+        </div>
+      </div>
+
+      <div className="container flex flex-col gap-4 px-4 py-6 sm:px-6">
+        <p className="text-sm text-muted-foreground">
+          A volume is storage leased on its own from one provider. Its data outlives the deployments that mount it, and whatever mounts it runs on that
+          provider.
+        </p>
+
+        {isError && (
+          <div className="flex flex-col items-center justify-center gap-4 py-8">
+            <p className="text-muted-foreground">Couldn&apos;t load volumes.</p>
+            <Button variant="outline" size="sm" onClick={refetch}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Retry
+            </Button>
+          </div>
+        )}
+
+        {!isError && hasNoVolumes && (
+          <div className="flex flex-col items-center justify-center gap-3 rounded-md border bg-card py-12 text-center">
+            <HardDrive className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
+            <p className="font-medium">No volumes yet</p>
+            <p className="max-w-md text-sm text-muted-foreground">Create one here, or from a service&apos;s hardware when you configure a deployment.</p>
+            <Button size="sm" onClick={openCreate}>
+              Create volume
+            </Button>
+          </div>
+        )}
+
+        {!isError && !hasNoVolumes && (
+          <div className="overflow-x-auto rounded-md border bg-card">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Volume</TableHead>
+                  <TableHead>State</TableHead>
+                  <TableHead>Size</TableHead>
+                  <TableHead>Provider</TableHead>
+                  <TableHead>Cost</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoading
+                  ? LOADING_ROWS.map(key => <RowPlaceholder key={key} />)
+                  : volumes.map(volume => (
+                      <VolumeRow
+                        key={volume.dseq}
+                        volume={volume}
+                        provider={providers.find(candidate => candidate.owner === volume.provider)}
+                        dependencies={d}
+                      />
+                    ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </div>
+
+      {isCreateOpen && (
+        <d.CreateVolumeDialog
+          open
+          onOpenChange={setIsCreateOpen}
+          placement={STANDALONE_PLACEMENT}
+          takenNames={volumes.map(volume => volume.name)}
+          onCreated={refetch}
+        />
+      )}
+    </d.Layout>
+  );
+};
+
+const VolumeRow: FC<{ volume: OwnedVolume; provider?: ApiProviderList; dependencies: typeof DEPENDENCIES }> = ({ volume, provider, dependencies: d }) => {
+  const storageType = persistentStorageTypes.find(type => type.className === volume.storageClass)?.name;
+
+  return (
+    <TableRow>
+      <TableCell>
+        <Link href={UrlService.deploymentDetails(volume.dseq)} className="font-medium">
+          {volume.name}
+        </Link>
+        <div className="font-mono text-xs text-muted-foreground">{volume.dseq}</div>
+      </TableCell>
+      <TableCell>
+        <VolumeStateLabel volume={volume} dependencies={d} />
+      </TableCell>
+      <TableCell>{storageType ? `${formatByteSize(volume.sizeBytes)} · ${storageType}` : formatByteSize(volume.sizeBytes)}</TableCell>
+      <TableCell>{provider ? providerDisplayName(provider) : volume.provider}</TableCell>
+      <TableCell>
+        {volume.pricePerBlock && (
+          <d.PricePerTimeUnit
+            className="text-sm"
+            perBlockValue={udenomToDenom(volume.pricePerBlock.amount, PRICE_DISPLAY_PRECISION)}
+            denom={volume.pricePerBlock.denom}
+          />
+        )}
+      </TableCell>
+    </TableRow>
+  );
+};
+
+const VolumeStateLabel: FC<{ volume: OwnedVolume; dependencies: typeof DEPENDENCIES }> = ({ volume, dependencies: d }) => {
+  const countdown = d.useCountdown(volume.reclamationDeadline ?? null);
+
+  switch (volume.state) {
+    case "available":
+      return <Badge variant="success">Available</Badge>;
+    case "mounted":
+      return (
+        <div className="flex flex-col items-start gap-1">
+          <Badge variant="info">Mounted</Badge>
+          {volume.mountedBy && (
+            <Link href={UrlService.deploymentDetails(volume.mountedBy)} className="text-xs">
+              by deployment {volume.mountedBy}
+            </Link>
+          )}
+        </div>
+      );
+    case "closing":
+      return (
+        <div className="flex flex-col items-start gap-1">
+          <Badge variant="secondary">Closing</Badge>
+          <span className="text-xs text-muted-foreground">{countdown ? `Finishes closing in ${countdown}` : "Finishing closing now"}</span>
+        </div>
+      );
+    case "reclaiming":
+      return (
+        <div className="flex flex-col items-start gap-1">
+          <Badge variant="destructive">Reclaiming</Badge>
+          <span className="text-xs text-muted-foreground">{countdown ? `Lease ends in ${countdown}` : "Lease ending now"}</span>
+        </div>
+      );
+    default:
+      return <Badge variant="outline">Not leased</Badge>;
+  }
+};
+
+const RowPlaceholder: FC = () => (
+  <TableRow data-testid="volume-placeholder">
+    {["volume", "state", "size", "provider", "cost"].map(column => (
+      <TableCell key={column}>
+        <Skeleton className="h-4 w-24" />
+      </TableCell>
+    ))}
+  </TableRow>
+);
