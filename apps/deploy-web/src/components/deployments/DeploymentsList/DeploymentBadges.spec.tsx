@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import { mock } from "vitest-mock-extended";
 
 import type { DeploymentDto } from "@src/types/deployment";
+import { deploymentToDto } from "@src/utils/deploymentDetailUtils";
 import type { DeclaredGpuInterconnect } from "@src/utils/gpuInterconnect";
 import { DEPENDENCIES, DeploymentBadges } from "./DeploymentBadges";
 
 import { render, screen } from "@testing-library/react";
+import { buildRpcDeployment } from "@tests/seeders";
 import { MockComponents } from "@tests/unit/mocks";
 
 describe(DeploymentBadges.name, () => {
@@ -57,12 +59,32 @@ describe(DeploymentBadges.name, () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  function setup(input: { interconnect?: DeclaredGpuInterconnect; isTrialing?: boolean; createdAt?: number; state?: string }) {
+  it.each(["active", "closed"])("marks a %s volume's own deployment as a volume", state => {
+    setup({ state, isTrialing: true, groups: [buildVolumeGroup()] });
+
+    expect(screen.getByText("Volume")).toBeInTheDocument();
+  });
+
+  it("marks a deployment that runs a workload as no volume", () => {
+    setup({ isTrialing: true });
+
+    expect(screen.queryByText("Volume")).not.toBeInTheDocument();
+  });
+
+  function setup(input: {
+    interconnect?: DeclaredGpuInterconnect;
+    isTrialing?: boolean;
+    createdAt?: number;
+    state?: string;
+    groups?: DeploymentDto["groups"];
+  }) {
     const useDeclaredGpuInterconnect: typeof DEPENDENCIES.useDeclaredGpuInterconnect = () => input.interconnect ?? { enabled: false, fabrics: [] };
     const useWallet: typeof DEPENDENCIES.useWallet = () => mock<ReturnType<typeof DEPENDENCIES.useWallet>>({ isTrialing: input.isTrialing ?? false });
     const GpuInterconnectBadge = vi.fn<typeof DEPENDENCIES.GpuInterconnectBadge>(() => <span>gpu interconnect badge</span>);
     const TrialDeploymentBadge = vi.fn<typeof DEPENDENCIES.TrialDeploymentBadge>(() => <span>trial badge</span>);
-    const deployment = mock<DeploymentDto>({ dseq: "100", createdAt: input.createdAt ?? 100, state: input.state ?? "active" });
+    const deployment = Object.assign(mock<DeploymentDto>({ dseq: "100", createdAt: input.createdAt ?? 100, state: input.state ?? "active" }), {
+      groups: input.groups ?? []
+    });
 
     const { container } = render(
       <DeploymentBadges
@@ -72,5 +94,9 @@ describe(DeploymentBadges.name, () => {
     );
 
     return { container, GpuInterconnectBadge, TrialDeploymentBadge, deployment };
+  }
+
+  function buildVolumeGroup(): DeploymentDto["groups"][number] {
+    return deploymentToDto(buildRpcDeployment({ groups: [{ group_spec: { volume: { vid: "data" } } }] })).groups[0];
   }
 });
