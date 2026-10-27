@@ -7,6 +7,7 @@ import {
   deploymentGroup,
   deploymentGroupResource,
   lease,
+  leaseResize,
   message,
   provider,
   providerAttribute,
@@ -26,7 +27,15 @@ export const deploymentGroupRelations = relations(deploymentGroup, ({ one, many 
 
 export const deploymentRelations = relations(deployment, ({ many }) => ({
   deploymentGroups: many(deploymentGroup),
-  leases: many(lease)
+  leases: many(lease),
+  leaseResizes: many(leaseResize)
+}));
+
+export const leaseResizeRelations = relations(leaseResize, ({ one }) => ({
+  deployment: one(deployment, {
+    fields: [leaseResize.deploymentId],
+    references: [deployment.id]
+  })
 }));
 
 export const providerAttributeSignatureRelations = relations(providerAttributeSignature, ({ one }) => ({

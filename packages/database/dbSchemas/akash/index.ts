@@ -9,6 +9,8 @@ export { ProviderSnapshotStorage } from "./providerSnapshotStorage";
 export { ProviderAttribute } from "./providerAttribute";
 export { ProviderAttributeSignature } from "./providerAttributeSignature";
 export { Lease } from "./lease";
+export type { GroupResourceRow } from "./leaseResize";
+export { LeaseResize } from "./leaseResize";
 export { DeploymentGroupResource } from "./deploymentGroupResource";
 export { Bid } from "./bid";
 export { BmeLedgerRecord } from "./bmeLedgerRecord";

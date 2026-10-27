@@ -184,6 +184,32 @@ export const lease = pgTable(
   ]
 );
 
+export const leaseResize = pgTable(
+  "leaseResize",
+  {
+    id: uuid().primaryKey().notNull(),
+    deploymentId: uuid().notNull(),
+    owner: varchar({ length: 255 }).notNull(),
+    dseq: varchar({ length: 255 }).notNull(),
+    gseq: integer().notNull(),
+    oseq: integer().notNull(),
+    bseq: integer().notNull(),
+    provider: varchar({ length: 255 }).notNull(),
+    resources: jsonb().notNull(),
+    requestedHeight: integer().notNull()
+  },
+  table => [
+    uniqueIndex("lease_resize_deployment_id").using("btree", table.deploymentId.asc().nullsLast().op("uuid_ops")),
+    foreignKey({
+      columns: [table.deploymentId],
+      foreignColumns: [deployment.id],
+      name: "leaseResize_deploymentId_fkey"
+    })
+      .onUpdate("cascade")
+      .onDelete("cascade")
+  ]
+);
+
 export const deployment = pgTable(
   "deployment",
   {
