@@ -68,6 +68,14 @@ describe("DeploymentDetail", () => {
     expect(isRenderedBefore(banner, tabList)).toBe(true);
   });
 
+  it("renders the volume closing banner with the deployment's leases between the detail header and the tabs", () => {
+    const { VolumeClosingBanner } = setup();
+
+    expect(isRenderedBefore(screen.getByText("detail-header"), screen.getByText("volume-closing-banner"))).toBe(true);
+    expect(isRenderedBefore(screen.getByText("volume-closing-banner"), screen.getByRole("tablist"))).toBe(true);
+    expect(VolumeClosingBanner.mock.calls[0][0].leases).toHaveLength(1);
+  });
+
   it("tracks a navigate_tab analytics event when switching tabs", async () => {
     const { analyticsService } = setup();
 
@@ -725,6 +733,7 @@ describe("DeploymentDetail", () => {
 
     const DeploymentDetailHeader = vi.fn<(props: { leases?: LeaseDto[] | null; isLoadingLeaseGpus?: boolean }) => ReactElement>(() => <div>detail-header</div>);
     const ReclamationBanner = vi.fn(() => <div>reclamation-banner</div>);
+    const VolumeClosingBanner = vi.fn((_props: { leases: LeaseDto[] | null | undefined }) => <div>volume-closing-banner</div>);
     const DeploymentPlacements = vi.fn<(props: DeploymentPlacementsProps) => ReactElement>(() => <div>placements</div>);
     const DeploymentGettingStarted = vi.fn<(props: DeploymentGettingStartedProps) => ReactElement>(() => <div>getting-started</div>);
     const DeploymentLogs = vi.fn(() => <div>logs</div>);
@@ -777,6 +786,7 @@ describe("DeploymentDetail", () => {
       DeploymentDetailHeader,
       DeploymentLaunchState,
       ReclamationBanner,
+      VolumeClosingBanner,
       DeploymentPlacements,
       DeploymentGettingStarted,
       DeploymentLogs,
@@ -800,6 +810,7 @@ describe("DeploymentDetail", () => {
       useDeploymentLocationQuery,
       ManifestUpdate,
       DeploymentUpdate,
+      VolumeClosingBanner,
       refetchDeployment,
       DeploymentDetailHeader,
       DeploymentPlacements,

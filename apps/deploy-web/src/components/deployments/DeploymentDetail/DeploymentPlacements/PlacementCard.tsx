@@ -12,7 +12,7 @@ import type { ApiProviderList } from "@src/types/provider";
 import { getGroupTeeType } from "@src/utils/confidentialCompute";
 import { isLeaseLive } from "@src/utils/leaseUtils";
 import { providerDisplayName } from "@src/utils/providerUtils";
-import { isProviderReclaimed, isReclaiming } from "@src/utils/reclamationUtils";
+import { isClosingVolume, isProviderReclaimed, isReclaiming } from "@src/utils/reclamationUtils";
 import { UrlService } from "@src/utils/urlUtils";
 import { volumeClassOf, volumeOf } from "@src/utils/volumeUtils";
 import { ConfidentialComputeResources } from "../../ConfidentialComputeResources";
@@ -107,7 +107,7 @@ export const PlacementCard: FC<PlacementCardProps> = ({
               {index + 1}
             </div>
             <h3 className="text-2xl font-medium tracking-tight">{name}</h3>
-            {isReclaiming(lease) && <StatusBadge label="Reclaiming" tone="warning" />}
+            {isReclaiming(lease) && <StatusBadge label={isClosingVolume(lease) ? "Closing" : "Reclaiming"} tone="warning" />}
             {isProviderUnreachable && <StatusBadge label="Provider not responding" tone="warning" />}
           </div>
           {(region || providerName) && (
@@ -148,7 +148,7 @@ export const PlacementCard: FC<PlacementCardProps> = ({
       )}
 
       {volume ? (
-        <d.VolumeAttachment vid={volume.vid} owner={lease.owner} dseq={dseq} />
+        lease.state === "active" && <d.VolumeAttachment vid={volume.vid} owner={lease.owner} dseq={dseq} />
       ) : (
         <div className="p-6">
           <div className="mb-3 flex items-center justify-between gap-3">

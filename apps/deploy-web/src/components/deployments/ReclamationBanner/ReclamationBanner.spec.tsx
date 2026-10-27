@@ -18,6 +18,11 @@ describe("ReclamationBanner", () => {
     expect(screen.queryByText("This deployment is being reclaimed")).not.toBeInTheDocument();
   });
 
+  it("leaves a volume its owner closed to the volume's own banner, since no provider is reclaiming it", () => {
+    setup({ leases: [createLease({ state: "reclaiming", reclamation: { reason: "reason_volume_closed_retain" } })] });
+    expect(screen.queryByText("This deployment is being reclaimed")).not.toBeInTheDocument();
+  });
+
   it("renders nothing when there are no leases", () => {
     setup({ leases: [] });
     expect(screen.queryByText("This deployment is being reclaimed")).not.toBeInTheDocument();

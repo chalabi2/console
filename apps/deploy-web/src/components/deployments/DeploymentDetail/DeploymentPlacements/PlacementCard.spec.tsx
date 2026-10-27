@@ -221,6 +221,16 @@ describe(PlacementCard.name, () => {
       expect(screen.getByText("Class").parentElement).toHaveTextContent("default");
     });
 
+    it("marks a volume its owner closed as closing and offers no attachment while it closes", () => {
+      const VolumeAttachment = vi.fn((_props: VolumeAttachmentProps) => <div>volume-attachment</div>);
+      const lease = buildLease({ volume: { vid: "data" }, state: "reclaiming", reclamation: { reason: "reason_volume_closed_retain" } });
+      setup({ lease, dependencies: { VolumeAttachment } });
+
+      expect(screen.getByText("Closing")).toBeInTheDocument();
+      expect(screen.queryByText("Reclaiming")).not.toBeInTheDocument();
+      expect(VolumeAttachment).not.toHaveBeenCalled();
+    });
+
     it("shows how another deployment attaches the volume instead of listing services", () => {
       const VolumeAttachment = vi.fn((_props: VolumeAttachmentProps) => <div>volume-attachment</div>);
       setup({ lease: buildLease({ volume: { vid: "data" } }), dependencies: { VolumeAttachment } });
@@ -239,8 +249,10 @@ describe(PlacementCard.name, () => {
     offeredGpus?: LeaseDto["offeredGpus"];
     volume?: GroupVolume;
     storageClass?: string;
+    reclamation?: LeaseDto["reclamation"];
   }) {
     return mock<LeaseDto>({
+      ...(input?.reclamation && { reclamation: input.reclamation }),
       offeredGpus: input?.offeredGpus,
       id: "1",
       owner: "akash1owner",

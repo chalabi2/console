@@ -31,6 +31,7 @@ import { DeploymentLeaseShell } from "../DeploymentLeaseShell";
 import { DeploymentLogs } from "../DeploymentLogs";
 import { ManifestUpdate } from "../ManifestUpdate/ManifestUpdate";
 import { ReclamationBanner } from "../ReclamationBanner/ReclamationBanner";
+import { VolumeClosingBanner } from "../VolumeClosingBanner/VolumeClosingBanner";
 import { DeploymentGettingStarted } from "./DeploymentGettingStarted/DeploymentGettingStarted";
 import { DeploymentLaunchState } from "./DeploymentLaunchState/DeploymentLaunchState";
 import { DeploymentPlacements } from "./DeploymentPlacements/DeploymentPlacements";
@@ -58,6 +59,7 @@ export const DEPENDENCIES = {
   NextSeo,
   Layout,
   ReclamationBanner,
+  VolumeClosingBanner,
   DeploymentDetailHeader,
   DeploymentGettingStarted,
   DeploymentLaunchState,
@@ -257,6 +259,7 @@ export const DeploymentDetail: FC<DeploymentDetailProps> = ({ dseq, dependencies
             <d.DeploymentDetailHeader deployment={deployment} leases={leases} providers={providers} isLoadingLeaseGpus={isLoadingLeaseGpus} />
 
             <d.ReclamationBanner leases={leases} dseq={dseq} className="mb-6" />
+            <d.VolumeClosingBanner leases={leases} className="mb-6" />
 
             {isManagementUnreadable && (
               <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border px-4 py-3">

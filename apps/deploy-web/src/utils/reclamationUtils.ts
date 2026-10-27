@@ -37,6 +37,7 @@ export function classifyLeaseCloseReason(reason?: string): LeaseCloseParty {
 export function getLeaseCloseReasonLabel(reason?: string): string {
   switch (toNumericCloseReason(reason)) {
     case LeaseClosedReason.lease_closed_owner:
+    case LeaseClosedReason.reason_volume_closed_retain:
       return "Closed by you";
     case LeaseClosedReason.lease_closed_reason_unstable:
       return "Closed by provider (workloads unstable)";
@@ -53,8 +54,11 @@ export function getLeaseCloseReasonLabel(reason?: string): string {
 }
 
 export function isClosedByOwner(lease: ReclaimableLease): boolean {
-  return toNumericCloseReason(lease.reason ?? lease.reclamation?.reason) === LeaseClosedReason.lease_closed_owner;
+  return OWNER_CLOSE_REASONS.includes(toNumericCloseReason(lease.reason ?? lease.reclamation?.reason));
 }
+
+/** A volume's owner closes it through its reclamation window, so its close carries a volume reason in the network range instead of the owner's. */
+const OWNER_CLOSE_REASONS: Array<number | undefined> = [LeaseClosedReason.lease_closed_owner, LeaseClosedReason.reason_volume_closed_retain];
 
 /**
  * The same close reason at list density, where a parenthetical detail would wrap the status badge onto a
@@ -105,6 +109,11 @@ export function getReclamationDeadline(lease: Pick<LeaseDto, "reclamation">): Da
 
 export function isReclaiming(lease: Pick<LeaseDto, "state">): boolean {
   return lease.state === "reclaiming";
+}
+
+/** A volume its owner closed keeps its lease reclaiming until the reclamation window ends, when the console sends the close that finishes it. */
+export function isClosingVolume(lease: Pick<LeaseDto, "state" | "reclamation">): boolean {
+  return isReclaiming(lease) && toNumericCloseReason(lease.reclamation?.reason) === LeaseClosedReason.reason_volume_closed_retain;
 }
 
 /** The soonest deadline among a deployment's reclaiming leases: the moment the workload actually goes dark. */

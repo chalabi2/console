@@ -12,6 +12,7 @@ import {
   getClosedLeaseLabel,
   getClosedLeaseSummaryLabel,
   isClosedByOwner,
+  isClosingVolume,
   isProviderReclaimed,
   isReclaiming
 } from "@src/utils/reclamationUtils";
@@ -110,6 +111,7 @@ export function getDeploymentStatus(
   const deadLease = leases?.length && !leases.some(isLeaseLive) ? selectLeaseToReportOn(leases) : undefined;
 
   if (!deadLease) {
+    if (leases?.some(isClosingVolume)) return CLOSING_STATUS;
     if (leases?.some(isReclaiming)) return RECLAIMING_STATUS;
     const workloadStatus = state === "active" && workload ? WORKLOAD_STATUSES[workload] : undefined;
     if (workloadStatus) return workloadStatus;

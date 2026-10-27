@@ -37,7 +37,7 @@ describe("DeploymentStatusBadge", () => {
     const deadlineInOneDay = Math.floor(Date.now() / 1000) + 24 * 60 * 60;
     const { CustomTooltip } = setup({
       state: "active",
-      leases: [mock<LeaseDto>({ state: "reclaiming", reclamation: { deadline: deadlineInOneDay } })],
+      leases: [mock<LeaseDto>({ state: "reclaiming", reclamation: { deadline: deadlineInOneDay, reason: "lease_closed_reason_decommission" } })],
       isClosing: true
     });
 
@@ -83,6 +83,13 @@ describe("DeploymentStatusBadge", () => {
     expect(screen.queryByText("Running")).not.toBeInTheDocument();
   });
 
+  it("reports a volume its owner closed as closing while its reclamation window runs, rather than as reclaimed", () => {
+    setup({ state: "active", leases: [mock<LeaseDto>({ state: "reclaiming", reclamation: { reason: "reason_volume_closed_retain" } })] });
+
+    expect(screen.getByText("Closing")).toBeInTheDocument();
+    expect(screen.queryByText("Reclaiming")).not.toBeInTheDocument();
+  });
+
   it("reports reclaiming even when another placement is still healthy", () => {
     setup({ state: "active", leases: [mock<LeaseDto>({ state: "active" }), mock<LeaseDto>({ state: "reclaiming" })] });
 
@@ -93,7 +100,10 @@ describe("DeploymentStatusBadge", () => {
     const deadlineInOneDay = Math.floor(Date.now() / 1000) + 24 * 60 * 60;
     setup({
       state: "active",
-      leases: [mock<LeaseDto>({ state: "active" }), mock<LeaseDto>({ state: "reclaiming", reclamation: { deadline: deadlineInOneDay } })]
+      leases: [
+        mock<LeaseDto>({ state: "active" }),
+        mock<LeaseDto>({ state: "reclaiming", reclamation: { deadline: deadlineInOneDay, reason: "lease_closed_reason_decommission" } })
+      ]
     });
 
     expect(screen.getByText("Closes in 24 hours.")).toBeInTheDocument();
@@ -168,7 +178,11 @@ describe("DeploymentStatusBadge", () => {
 
     it("moves how long a reclaimed workload has left onto the badge instead of a second line", () => {
       const deadlineInOneDay = Math.floor(Date.now() / 1000) + 24 * 60 * 60;
-      setup({ state: "active", leases: [mock<LeaseDto>({ state: "reclaiming", reclamation: { deadline: deadlineInOneDay } })], isSummarized: true });
+      setup({
+        state: "active",
+        leases: [mock<LeaseDto>({ state: "reclaiming", reclamation: { deadline: deadlineInOneDay, reason: "lease_closed_reason_decommission" } })],
+        isSummarized: true
+      });
 
       expect(screen.getByText("Reclaiming")).toBeInTheDocument();
       expect(screen.getByText("Closes in 24 hours.")).toBeInTheDocument();

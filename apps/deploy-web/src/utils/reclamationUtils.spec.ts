@@ -10,6 +10,7 @@ import {
   getNearestReclamationDeadline,
   getReclamationDeadline,
   isClosedByOwner,
+  isClosingVolume,
   isProviderReclaimed,
   isReclaiming,
   parseReclamationWindowSeconds
@@ -63,6 +64,10 @@ describe("reclamationUtils", () => {
       expect(getLeaseCloseReasonLabel(undefined)).toBe("Closed");
     });
 
+    it("credits a volume's close to its owner, though the chain files it under a network reason", () => {
+      expect(getLeaseCloseReasonLabel("reason_volume_closed_retain")).toBe("Closed by you");
+    });
+
     it("never returns a raw enum name", () => {
       expect(getLeaseCloseReasonLabel("lease_closed_reason_unstable")).not.toMatch(/lease_closed/);
     });
@@ -104,6 +109,10 @@ describe("reclamationUtils", () => {
 
     it("reads the reclamation's reason when the lease carries none of its own", () => {
       expect(isClosedByOwner({ state: "closed", reclamation: { reason: "lease_closed_owner" } })).toBe(true);
+    });
+
+    it("reads a volume its owner closed as closed by its owner", () => {
+      expect(isClosedByOwner({ state: "closed", reason: "reason_volume_closed_retain" })).toBe(true);
     });
 
     it.each(["lease_closed_reason_unstable", "lease_closed_reason_insufficient_funds", "9999", undefined])(
@@ -198,6 +207,20 @@ describe("reclamationUtils", () => {
       expect(isReclaiming(createLease({ state: "reclaiming" }))).toBe(true);
       expect(isReclaiming(createLease({ state: "active" }))).toBe(false);
       expect(isReclaiming(createLease({ state: "closed" }))).toBe(false);
+    });
+  });
+
+  describe(isClosingVolume.name, () => {
+    it("reads a volume whose owner closed it as closing while its reclamation window runs", () => {
+      expect(isClosingVolume(createLease({ state: "reclaiming", reclamation: { reason: "reason_volume_closed_retain" } }))).toBe(true);
+    });
+
+    it.each([
+      { case: "its provider is reclaiming", lease: { state: "reclaiming", reclamation: { reason: "reason_volume_evict" } } },
+      { case: "already finished closing", lease: { state: "closed", reclamation: { reason: "reason_volume_closed_retain" } } },
+      { case: "says nothing of why it is reclaiming", lease: { state: "reclaiming" } }
+    ])("does not read a lease that $case as a closing volume", ({ lease }) => {
+      expect(isClosingVolume(createLease(lease))).toBe(false);
     });
   });
 
