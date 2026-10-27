@@ -37,7 +37,7 @@ type ResizePlanInput = {
   submitted: GroupSpec[];
   /** Null when the chain could not describe the deployment, which leaves the change to the provider. */
   groups: OnChainGroup[] | null;
-  /** Set for a patch naming resources or a count, or changing no service and so re-applying the recorded definition, the only patches that resize. */
+  /** Set for a patch naming resources or a count, or one changing no service or leaving the recorded definition as it is, which re-applies it: the only patches that resize. */
   mayResize: boolean;
 };
 

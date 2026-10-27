@@ -3598,6 +3598,14 @@ describe(DeploymentWriterService.name, () => {
         expect(leaseResizeService.planFor).toHaveBeenCalledWith(expect.objectContaining({ mayResize }));
       });
 
+      it("lets a patch that leaves the recorded definition as it is resize, since it re-applies that definition", async () => {
+        const { service, ability, leaseResizeService } = setup({ storedVersion: Buffer.from(new Uint8Array([1, 2, 3])).toString("base64") });
+
+        await service.patchByUserIdAndDseq("user-1", "1234", { services: { web: { image: "x" } } }, ability).catch(() => undefined);
+
+        expect(leaseResizeService.planFor).toHaveBeenCalledWith(expect.objectContaining({ mayResize: true }));
+      });
+
       it("writes nothing when the stored sdl no longer declares the resources the deployment holds on chain", async () => {
         const { service, ability, sdlSecretsService, deploymentSettingRepository, signerService, providerService, leaseResizeService } = setup({
           chainHash: "SOMETHING_ELSE",

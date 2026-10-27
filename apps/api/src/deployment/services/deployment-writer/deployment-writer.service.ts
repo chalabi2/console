@@ -1051,6 +1051,7 @@ export class DeploymentWriterService {
     const merged = this.#mergeAndPrune({ held, supplied, derived }, document);
 
     const { manifestVersion, manifest } = await this.#resolveDeployableSdl(patchedSdl, { secrets: merged, isTrialing: !!wallet.isTrialing });
+    const recordedVersion = Buffer.from(manifestVersion).toString("base64");
     const { deployment, groups } = await this.deploymentReaderService.findWithGroupSpecsByWalletAndDseq(wallet, dseq);
     const resize = await this.leaseResizeService.planFor({
       userId,
@@ -1058,12 +1059,11 @@ export class DeploymentWriterService {
       dseq,
       submitted: manifest.groupSpecs,
       groups,
-      mayResize: asksToResize(input.services ?? {}) || !assignsAnyServiceField(input.services)
+      mayResize: asksToResize(input.services ?? {}) || !assignsAnyServiceField(input.services) || recordedVersion === stored.manifestVersion
     });
 
     if (resize && wallet.isTrialing) throw createError(402, TRIAL_LEASE_RESIZE_REFUSAL);
 
-    const recordedVersion = Buffer.from(manifestVersion).toString("base64");
     const sealedSecrets = await this.sdlSecretsService.sealForStorage({ userId: filedUserId, teamId: teamIdOf(wallet), dseq, secrets: merged });
 
     return {

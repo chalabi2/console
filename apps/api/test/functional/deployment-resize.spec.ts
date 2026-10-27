@@ -195,6 +195,19 @@ describe("Resizing a deployment's lease in place", () => {
       );
     });
 
+    it("re-applies a recorded definition asking for other resources by resizing the lease, given a patch setting a field to the value it has", async () => {
+      const { apiKey } = await setup({ resizeOnChain: true, chainSdl: STORED_SDL.replace("units: 0.5", "units: 1") });
+      const enqueue = vi.spyOn(container.resolve(JobQueueService), "enqueue");
+
+      const response = await patch(apiKey, { services: { web: { image: "nginx" } } });
+
+      expect(response.status).toBe(202);
+      expect(enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({ name: ApplyDeploymentUpdate.name, data: expect.objectContaining({ resizes: true }) }),
+        expect.anything()
+      );
+    });
+
     it("refuses any patch while a resize waits for the deployment's provider", async () => {
       const { apiKey } = await setup({ resizeOnChain: true, pendingResize: true });
 
