@@ -28,7 +28,7 @@ describe(ResizePricePreview.name, () => {
   ] as const)("caps new $field at the placement's price for its instances and shows what it costs today", ({ edit }) => {
     const { form } = setup({ services: [service({ cpu: 1, count: 1, amount: 1000 })], leasePrice: "53.07" });
 
-    act(() => form.setValue(...edit));
+    act(() => form.setValue(edit[0], edit[1] as never));
 
     expect(screen.getByTestId("resize-price-preview")).toHaveTextContent(
       "Your provider prices the new hardware when it accepts it, at no more than 0.001 uact, the most this placement pays. It costs 0.00005307 uact today."
