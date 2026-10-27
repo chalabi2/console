@@ -10,6 +10,7 @@ import { useCloseDeployment } from "./useCloseDeployment";
 import { renderHook } from "@testing-library/react";
 
 const DSEQ = "1786440078202";
+const VOLUME_DSEQ = "1786440078100";
 
 describe(useCloseDeployment.name, () => {
   describe("when the activity center is off", () => {
@@ -25,6 +26,16 @@ describe(useCloseDeployment.name, () => {
       const { result } = setup({ txResponse: undefined });
 
       expect(await result.current(DSEQ)).toBe("not_closed");
+    });
+
+    it("closes the chosen volumes in the same transaction, after the deployment that mounts them", async () => {
+      const { result, signAndBroadcastTx } = setup({});
+
+      expect(await result.current(DSEQ, { volumeDseqs: [VOLUME_DSEQ] })).toBe("closed");
+      expect(signAndBroadcastTx).toHaveBeenCalledWith([
+        TransactionMessageData.getCloseDeploymentMsg("akash1test", DSEQ),
+        TransactionMessageData.getCloseDeploymentMsg("akash1test", VOLUME_DSEQ)
+      ]);
     });
   });
 
@@ -62,6 +73,46 @@ describe(useCloseDeployment.name, () => {
       );
     });
 
+    it("closes the chosen volumes in the background once the deployment's close is accepted", async () => {
+      const { result, requestClose } = setup({ isActivityCenterOn: true });
+
+      expect(await result.current(DSEQ, { volumeDseqs: [VOLUME_DSEQ] })).toBe("closing");
+      expect(requestClose.mock.calls).toEqual([[{ dseq: DSEQ, async: "true" }], [{ dseq: VOLUME_DSEQ, async: "true" }]]);
+    });
+
+    it("leaves the volumes open when the deployment's close is refused", async () => {
+      const { result, requestClose } = setup({ isActivityCenterOn: true, closeRefusal: new Error("Failed to fetch") });
+
+      await result.current(DSEQ, { volumeDseqs: [VOLUME_DSEQ] });
+
+      expect(requestClose).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      {
+        case: "why",
+        refusal: new ApiError(409, { message: "volume is still attached" }, `DELETE /v1/deployments/${VOLUME_DSEQ} → 409`),
+        subTitle: "volume is still attached"
+      },
+      { case: "where to close it when the refusal carries no reason", refusal: new Error("Failed to fetch"), subTitle: "Close it from the Volumes page." }
+    ])("tells the user $case a volume close was refused, keeping the deployment's outcome", async ({ refusal, subTitle }) => {
+      const { result, enqueueSnackbar } = setup({ isActivityCenterOn: true, volumeCloseRefusal: refusal });
+
+      expect(await result.current(DSEQ, { volumeDseqs: [VOLUME_DSEQ] })).toBe("closing");
+      expect(enqueueSnackbar).toHaveBeenCalledWith(
+        expect.objectContaining({ props: expect.objectContaining({ title: "Couldn't close a volume", subTitle, iconVariant: "error" }) }),
+        { variant: "error" }
+      );
+    });
+
+    it("tells the user nothing when every volume close is accepted", async () => {
+      const { result, enqueueSnackbar } = setup({ isActivityCenterOn: true });
+
+      await result.current(DSEQ, { volumeDseqs: [VOLUME_DSEQ] });
+
+      expect(enqueueSnackbar).not.toHaveBeenCalled();
+    });
+
     it("closes in the background once the activity center is switched on after it mounted", async () => {
       const { result, rerender, requestClose, signAndBroadcastTx } = setup({});
 
@@ -88,11 +139,14 @@ describe(useCloseDeployment.name, () => {
     txResponse?: unknown;
     closeResponse?: { data: { activityId: string } | { success: boolean } };
     closeRefusal?: Error;
+    volumeCloseRefusal?: Error;
   }) {
     const signAndBroadcastTx = vi.fn().mockResolvedValue("txResponse" in input ? input.txResponse : { transactionHash: "0x1" });
-    const requestClose = input.closeRefusal
-      ? vi.fn().mockRejectedValue(input.closeRefusal)
-      : vi.fn().mockResolvedValue(input.closeResponse ?? { data: { activityId: "b6f2d8e4-0f7c-4b37-9b52-6a1f0d3c2e11" } });
+    const requestClose = vi.fn(async ({ dseq }: { dseq: string }) => {
+      if (input.closeRefusal) throw input.closeRefusal;
+      if (dseq === VOLUME_DSEQ && input.volumeCloseRefusal) throw input.volumeCloseRefusal;
+      return input.closeResponse ?? { data: { activityId: "b6f2d8e4-0f7c-4b37-9b52-6a1f0d3c2e11" } };
+    });
     const enqueueSnackbar = vi.fn();
     const queryClient = mock<ReturnType<typeof DEPENDENCIES.useQueryClient>>();
 

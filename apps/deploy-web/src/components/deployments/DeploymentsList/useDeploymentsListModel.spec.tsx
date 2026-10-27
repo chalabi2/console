@@ -358,6 +358,15 @@ describe(useDeploymentsListModel.name, () => {
   });
 
   describe("closing the selected deployments", () => {
+    it("closes the volumes chosen along with the selected deployments", async () => {
+      const { result, closeDeployments } = setup({ active: [deployment("100"), deployment("101")], volumeDseqs: ["200"] });
+
+      act(() => result.current.selectItem({ id: "100", isShiftPressed: false }));
+      await act(async () => await result.current.closeSelectedDeployments());
+
+      expect(closeDeployments).toHaveBeenCalledWith(["100"], { volumeDseqs: ["200"] });
+    });
+
     it("closes every selected deployment, records why on each, and then clears the selection", async () => {
       const { result, closeDeployments, confirmCloseDeployment, recordCloseReason, refetch } = setup({
         active: [deployment("100"), deployment("101")],
@@ -369,7 +378,7 @@ describe(useDeploymentsListModel.name, () => {
       await act(async () => await result.current.closeSelectedDeployments());
 
       expect(confirmCloseDeployment).toHaveBeenCalledWith({ dseqs: ["100", "101"] });
-      expect(closeDeployments).toHaveBeenCalledWith(["100", "101"]);
+      expect(closeDeployments).toHaveBeenCalledWith(["100", "101"], { volumeDseqs: [] });
       expect(recordCloseReason).toHaveBeenCalledWith(["100", "101"], CLOSE_REASON);
       expect(refetch).not.toHaveBeenCalled();
       expect(result.current.selectedItemIds).toEqual([]);
@@ -857,6 +866,7 @@ describe(useDeploymentsListModel.name, () => {
   }
 
   type Input = {
+    volumeDseqs?: string[];
     projectId?: string;
     active?: ListedDeploymentDto[];
     activeByPage?: Record<number, ListedDeploymentDto[]>;
@@ -886,7 +896,10 @@ describe(useDeploymentsListModel.name, () => {
 
     let current = input;
     const refetch = vi.fn();
-    const confirmCloseDeployment = vi.fn(async () => ("closeReason" in current ? current.closeReason ?? null : CLOSE_REASON));
+    const confirmCloseDeployment = vi.fn(async () => {
+      const closeReason = "closeReason" in current ? current.closeReason ?? null : CLOSE_REASON;
+      return closeReason ? { reason: closeReason, volumeDseqs: current.volumeDseqs ?? [] } : null;
+    });
     const recordCloseReason = vi.fn();
     const closeDeployments = vi.fn(async (dseqs: string[]) => current.closeOutcome ?? { closed: dseqs, closing: [] });
     const analyticsService = mock<AnalyticsService>();

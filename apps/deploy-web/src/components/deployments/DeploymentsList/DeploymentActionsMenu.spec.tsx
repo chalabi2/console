@@ -143,6 +143,15 @@ describe("DeploymentActionsMenu", () => {
     expect(confirmCloseDeployment).toHaveBeenCalledWith({ dseqs: ["100"], name: "acme" });
   });
 
+  it("closes the volumes chosen along with the deployment", async () => {
+    const { closeDeployment } = setup({ outcome: "closed", volumeDseqs: ["200"] });
+
+    await openMenu();
+    await userEvent.click(screen.getByRole("menuitem", { name: /Close/ }));
+
+    await vi.waitFor(() => expect(closeDeployment).toHaveBeenCalledWith("100", { volumeDseqs: ["200"] }));
+  });
+
   it("closes that deployment, records why, and tells the list to refresh once it lands", async () => {
     const { closeDeployment, onDeploymentClosed, recordCloseReason, analyticsService } = setup({ outcome: "closed" });
 
@@ -150,7 +159,7 @@ describe("DeploymentActionsMenu", () => {
     await userEvent.click(screen.getByRole("menuitem", { name: /Close/ }));
 
     await vi.waitFor(() => expect(onDeploymentClosed).toHaveBeenCalled());
-    expect(closeDeployment).toHaveBeenCalledWith("100");
+    expect(closeDeployment).toHaveBeenCalledWith("100", { volumeDseqs: [] });
     expect(recordCloseReason).toHaveBeenCalledWith(["100"], CLOSE_REASON);
     expect(analyticsService.track).toHaveBeenCalledWith("close_deployment", {
       category: "deployments",
@@ -235,6 +244,7 @@ describe("DeploymentActionsMenu", () => {
     state?: string;
     definition?: DeploymentDefinition;
     closeReason?: DeploymentCloseReasonInput | null;
+    volumeDseqs?: string[];
     outcome?: CloseOutcome;
     onDeploymentClosed?: undefined;
     isClosing?: boolean;
@@ -245,7 +255,8 @@ describe("DeploymentActionsMenu", () => {
   }) {
     const changeDeploymentName = vi.fn();
     const closeDeployment = vi.fn(async () => input.outcome ?? ("closing" as const));
-    const confirmCloseDeployment = vi.fn().mockResolvedValue("closeReason" in input ? input.closeReason : CLOSE_REASON);
+    const closeReason = "closeReason" in input ? input.closeReason : CLOSE_REASON;
+    const confirmCloseDeployment = vi.fn().mockResolvedValue(closeReason ? { reason: closeReason, volumeDseqs: input.volumeDseqs ?? [] } : null);
     const recordCloseReason = vi.fn();
     const redeploy = vi.fn();
     const onDeploymentClosed = vi.fn();

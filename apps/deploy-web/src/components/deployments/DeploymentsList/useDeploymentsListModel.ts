@@ -142,21 +142,21 @@ export function useDeploymentsListModel({ projectId }: { projectId?: string } = 
   );
 
   const closeSelectedDeployments = useCallback(async () => {
-    const closeReason = await confirmCloseDeployment({ dseqs: selectedItemIds });
-    if (!closeReason) return;
+    const confirmation = await confirmCloseDeployment({ dseqs: selectedItemIds });
+    if (!confirmation) return;
 
-    const { closed, closing } = await closeDeployments(selectedItemIds);
+    const { closed, closing } = await closeDeployments(selectedItemIds, { volumeDseqs: confirmation.volumeDseqs });
     const accepted = [...closed, ...closing];
     if (accepted.length === 0) return;
 
-    recordCloseReason(accepted, closeReason);
+    recordCloseReason(accepted, confirmation.reason);
     if (closed.length > 0) refetchDeployments();
     if (accepted.length === selectedItemIds.length) clearSelection();
     analyticsService.track("close_deployment", {
       category: "deployments",
       label: "Close selected deployments from list",
       count: accepted.length,
-      reason: closeReason.closeReason
+      reason: confirmation.reason.closeReason
     });
   }, [confirmCloseDeployment, recordCloseReason, selectedItemIds, closeDeployments, refetchDeployments, clearSelection, analyticsService]);
 

@@ -39,6 +39,16 @@ describe(useCloseDeployments.name, () => {
 
       expect(await result.current(["100", "101"])).toEqual({ closed: [], closing: [] });
     });
+
+    it("closes the chosen volumes in the same transaction, after the deployments that mount them", async () => {
+      const { result, signAndBroadcastTx } = setup({});
+
+      expect(await result.current(["100"], { volumeDseqs: ["200"] })).toEqual({ closed: ["100"], closing: [] });
+      expect(signAndBroadcastTx).toHaveBeenCalledWith([
+        TransactionMessageData.getCloseDeploymentMsg("akash1test", "100"),
+        TransactionMessageData.getCloseDeploymentMsg("akash1test", "200")
+      ]);
+    });
   });
 
   describe("when the activity center is on", () => {
@@ -94,6 +104,43 @@ describe(useCloseDeployments.name, () => {
         expect.objectContaining({ props: expect.objectContaining({ title: "Couldn't close 1 deployment", subTitle: "Try again in a moment." }) }),
         { variant: "error" }
       );
+    });
+
+    it("closes the chosen volumes in the background once every deployment close is accepted", async () => {
+      const { result, requestClose } = setup({ isActivityCenterOn: true });
+
+      expect(await result.current(["100"], { volumeDseqs: ["200"] })).toEqual({ closed: [], closing: ["100"] });
+      expect(requestClose.mock.calls).toEqual([[{ dseq: "100", async: "true", batchId: BATCH_ID }], [{ dseq: "200", async: "true" }]]);
+    });
+
+    it("leaves the volumes open when a deployment close is refused", async () => {
+      const { result, requestClose } = setup({ isActivityCenterOn: true, closeAnswers: { "101": new Error("Failed to fetch") } });
+
+      await result.current(["100", "101"], { volumeDseqs: ["200"] });
+
+      expect(requestClose).not.toHaveBeenCalledWith({ dseq: "200", async: "true" });
+    });
+
+    it("tells the user a refused volume close apart from the deployments", async () => {
+      const refusal = new ApiError(409, { message: "volume is still attached" }, "DELETE /v1/deployments/200 → 409");
+      const { result, enqueueSnackbar } = setup({ isActivityCenterOn: true, closeAnswers: { "200": refusal } });
+
+      expect(await result.current(["100"], { volumeDseqs: ["200"] })).toEqual({ closed: [], closing: ["100"] });
+      expect(enqueueSnackbar).toHaveBeenCalledWith(
+        expect.objectContaining({ props: expect.objectContaining({ title: "Couldn't close 1 volume", subTitle: "volume is still attached" }) }),
+        { variant: "error" }
+      );
+    });
+
+    it("tells the user how many volume closes were refused", async () => {
+      const refusal = new Error("Failed to fetch");
+      const { result, enqueueSnackbar } = setup({ isActivityCenterOn: true, closeAnswers: { "200": refusal, "201": refusal } });
+
+      await result.current(["100"], { volumeDseqs: ["200", "201"] });
+
+      expect(enqueueSnackbar).toHaveBeenCalledWith(expect.objectContaining({ props: expect.objectContaining({ title: "Couldn't close 2 volumes" }) }), {
+        variant: "error"
+      });
     });
 
     it("tells the user nothing more when every close was accepted", async () => {

@@ -56,15 +56,15 @@ export const DeploymentActionsMenu: FC<DeploymentActionsMenuProps> = ({
   const confirmAndClose = async () => {
     setIsOpen(false);
 
-    const closeReason = await confirmCloseDeployment({ dseqs: [deployment.dseq], name: definition.name });
-    if (!closeReason) return;
+    const confirmation = await confirmCloseDeployment({ dseqs: [deployment.dseq], name: definition.name });
+    if (!confirmation) return;
 
-    const outcome = await closeDeployment(deployment.dseq);
+    const outcome = await closeDeployment(deployment.dseq, { volumeDseqs: confirmation.volumeDseqs });
     if (outcome === "not_closed") return;
 
-    recordCloseReason([deployment.dseq], closeReason);
+    recordCloseReason([deployment.dseq], confirmation.reason);
     if (outcome === "closed") onDeploymentClosed?.();
-    analyticsService.track("close_deployment", { category: "deployments", label: "Close deployment from list", reason: closeReason.closeReason });
+    analyticsService.track("close_deployment", { category: "deployments", label: "Close deployment from list", reason: confirmation.reason.closeReason });
   };
 
   if (!canManage) return null;

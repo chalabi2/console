@@ -31,6 +31,9 @@ export interface OwnedVolume {
   mountedBy?: string;
   reclamationDeadline?: Date;
   pricePerBlock?: LeaseDto["price"];
+  /** What becomes of the data once a close completes, as the owner set it at creation. */
+  reclaim?: string;
+  retention?: string;
 }
 
 /** The volumes the wallet leases as their own deployments, read off its open deployments and their live leases. */
@@ -78,7 +81,9 @@ export function ownedVolumesOf(deployments: DeploymentDto[], leases: LeaseDto[])
         provider: lease?.provider,
         mountedBy: mounting,
         reclamationDeadline: (lease && getReclamationDeadline(lease)) ?? undefined,
-        pricePerBlock: lease?.price
+        pricePerBlock: lease?.price,
+        reclaim: volume.reclaim,
+        retention: volume.retention
       }
     ];
   });

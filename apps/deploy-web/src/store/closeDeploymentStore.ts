@@ -1,11 +1,10 @@
 import { atom } from "jotai";
 
-import type { CloseDeploymentTarget } from "@src/components/deployments/CloseDeploymentDialog/CloseDeploymentDialog";
-import type { DeploymentCloseReasonInput } from "@src/components/deployments/CloseDeploymentDialog/closeDeploymentReasons";
+import type { CloseDeploymentConfirmation, CloseDeploymentTarget } from "@src/components/deployments/CloseDeploymentDialog/CloseDeploymentDialog";
 
 export type CloseDeploymentRequest = {
   target: CloseDeploymentTarget;
-  resolve: (reason: DeploymentCloseReasonInput | null) => void;
+  resolve: (confirmation: CloseDeploymentConfirmation | null) => void;
 };
 
 /** The pending close confirmation, hosted once for the app so a list row's menu can ask after the menu itself has unmounted. */

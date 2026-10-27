@@ -19,8 +19,16 @@ describe("DeploymentDangerZone", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Close deployment" }));
 
-    await vi.waitFor(() => expect(closeDeployment).toHaveBeenCalledWith(DSEQ));
+    await vi.waitFor(() => expect(closeDeployment).toHaveBeenCalledWith(DSEQ, { volumeDseqs: [] }));
     expect(confirmCloseDeployment).toHaveBeenCalledWith({ dseqs: [DSEQ], name: "my-service" });
+  });
+
+  it("closes the volumes chosen along with the deployment", async () => {
+    const { closeDeployment } = setup({ closeReason: CLOSE_REASON, volumeDseqs: ["100"] });
+
+    await userEvent.click(screen.getByRole("button", { name: "Close deployment" }));
+
+    await vi.waitFor(() => expect(closeDeployment).toHaveBeenCalledWith(DSEQ, { volumeDseqs: ["100"] }));
   });
 
   it("records why and refreshes the deployment once its close has landed", async () => {
@@ -94,9 +102,15 @@ describe("DeploymentDangerZone", () => {
     expect(screen.getByText("Stop all services and permanently tear down this deployment. This action can't be undone.")).toBeInTheDocument();
   });
 
-  function setup(input: { closeReason?: DeploymentCloseReasonInput | null; outcome?: CloseOutcome; closeNeverAnswers?: boolean; closingDseqs?: string[] }) {
+  function setup(input: {
+    closeReason?: DeploymentCloseReasonInput | null;
+    volumeDseqs?: string[];
+    outcome?: CloseOutcome;
+    closeNeverAnswers?: boolean;
+    closingDseqs?: string[];
+  }) {
     const onClosed = vi.fn();
-    const confirmCloseDeployment = vi.fn().mockResolvedValue(input.closeReason ?? null);
+    const confirmCloseDeployment = vi.fn().mockResolvedValue(input.closeReason ? { reason: input.closeReason, volumeDseqs: input.volumeDseqs ?? [] } : null);
     const recordCloseReason = vi.fn();
     const closeDeployment = input.closeNeverAnswers
       ? vi.fn(() => new Promise<CloseOutcome>(() => undefined))

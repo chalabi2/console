@@ -1,8 +1,7 @@
 "use client";
 import { useAtom } from "jotai";
 
-import { CloseDeploymentDialog } from "@src/components/deployments/CloseDeploymentDialog/CloseDeploymentDialog";
-import type { DeploymentCloseReasonInput } from "@src/components/deployments/CloseDeploymentDialog/closeDeploymentReasons";
+import { type CloseDeploymentConfirmation, CloseDeploymentDialog } from "@src/components/deployments/CloseDeploymentDialog/CloseDeploymentDialog";
 import { closeDeploymentRequestAtom } from "@src/store/closeDeploymentStore";
 
 export const DEPENDENCIES = { CloseDeploymentDialog };
@@ -13,8 +12,8 @@ export function CloseDeploymentConfirmHost({ dependencies: d = DEPENDENCIES }: {
 
   if (!request) return null;
 
-  const answer = (reason: DeploymentCloseReasonInput | null) => {
-    request.resolve(reason);
+  const answer = (confirmation: CloseDeploymentConfirmation | null) => {
+    request.resolve(confirmation);
     setRequest(null);
   };
 

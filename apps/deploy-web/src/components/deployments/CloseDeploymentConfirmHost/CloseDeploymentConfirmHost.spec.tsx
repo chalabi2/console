@@ -29,7 +29,7 @@ describe("CloseDeploymentConfirmHost", () => {
 
     act(() => screen.getByRole("button", { name: "confirm" }).click());
 
-    expect(resolve).toHaveBeenCalledWith({ closeReason: "cost_or_budget" });
+    expect(resolve).toHaveBeenCalledWith({ reason: { closeReason: "cost_or_budget" }, volumeDseqs: ["100"] });
     expect(store.get(closeDeploymentRequestAtom)).toBeNull();
     expect(screen.queryByTestId("close-deployment-dialog")).not.toBeInTheDocument();
   });
@@ -50,7 +50,7 @@ describe("CloseDeploymentConfirmHost", () => {
       CloseDeploymentDialog: ({ target, onConfirm, onCancel }) => (
         <div data-testid="close-deployment-dialog">
           {target.name} {target.dseqs.join(",")}
-          <button onClick={() => onConfirm({ closeReason: "cost_or_budget" })}>confirm</button>
+          <button onClick={() => onConfirm({ reason: { closeReason: "cost_or_budget" }, volumeDseqs: ["100"] })}>confirm</button>
           <button onClick={onCancel}>cancel</button>
         </div>
       )

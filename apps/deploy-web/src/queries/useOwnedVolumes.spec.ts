@@ -28,7 +28,9 @@ describe("useOwnedVolumes", () => {
           provider: PROVIDER,
           mountedBy: undefined,
           reclamationDeadline: undefined,
-          pricePerBlock: PRICE
+          pricePerBlock: PRICE,
+          reclaim: "retain",
+          retention: "604800s"
         }
       ]);
     });
@@ -163,7 +165,7 @@ describe("useOwnedVolumes", () => {
         groups: [
           {
             group_spec: {
-              volume: { vid: "data" },
+              volume: { vid: "data", reclaim: "retain", retention: "604800s" },
               resources: [
                 {
                   resource: {

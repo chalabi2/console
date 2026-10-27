@@ -18,10 +18,10 @@ describe(useCloseDeploymentConfirm.name, () => {
       answer = result.current.confirmCloseDeployment({ dseqs: ["1786440078202"], name: "my-service" });
     });
     const request = store.get(closeDeploymentRequestAtom);
-    request?.resolve({ closeReason: "no_longer_needed" });
+    request?.resolve({ reason: { closeReason: "no_longer_needed" }, volumeDseqs: ["100"] });
 
     expect(request?.target).toEqual({ dseqs: ["1786440078202"], name: "my-service" });
-    await expect(answer).resolves.toEqual({ closeReason: "no_longer_needed" });
+    await expect(answer).resolves.toEqual({ reason: { closeReason: "no_longer_needed" }, volumeDseqs: ["100"] });
   });
 
   it("records the reason on the settings of every closed deployment", async () => {

@@ -34,20 +34,20 @@ export const DeploymentDangerZone: FC<DeploymentDangerZoneProps> = ({ deployment
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const confirmAndClose = async () => {
-    const closeReason = await confirmCloseDeployment({ dseqs: [deployment.dseq], name });
-    if (!closeReason) return;
+    const confirmation = await confirmCloseDeployment({ dseqs: [deployment.dseq], name });
+    if (!confirmation) return;
 
     setIsSubmitting(true);
     try {
-      const outcome = await closeDeployment(deployment.dseq);
+      const outcome = await closeDeployment(deployment.dseq, { volumeDseqs: confirmation.volumeDseqs });
       if (outcome === "not_closed") return;
 
       if (outcome === "closed") onClosed();
-      recordCloseReason([deployment.dseq], closeReason);
+      recordCloseReason([deployment.dseq], confirmation.reason);
       analyticsService.track("close_deployment", {
         category: "deployments",
         label: "Close deployment in deployment detail",
-        reason: closeReason.closeReason
+        reason: confirmation.reason.closeReason
       });
     } finally {
       setIsSubmitting(false);
