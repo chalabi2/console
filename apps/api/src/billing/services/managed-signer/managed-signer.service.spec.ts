@@ -13,6 +13,7 @@ import { mock } from "vitest-mock-extended";
 import type { AuthService } from "@src/auth/services/auth.service";
 import { EnableDeploymentAlertCommand } from "@src/billing/commands/enable-deployment-alert.command";
 import { FundDeploymentCommand } from "@src/billing/commands/fund-deployment.command";
+import { ManagedDeploymentClosed } from "@src/billing/events/managed-deployment-closed";
 import { ManagedDeploymentLeaseCreated } from "@src/billing/events/managed-deployment-lease-created";
 import { TrialDeploymentLeaseCreated } from "@src/billing/events/trial-deployment-lease-created";
 import type { DeploymentDepositOutput, UserWalletRepository, WalletInitialized } from "@src/billing/repositories";
@@ -855,6 +856,31 @@ describe(ManagedSignerService.name, () => {
       await service.executeDecodedTxByUserWallet(wallet, [closeMessageFor(123)], { actingUserId: "member-1" });
 
       expect(deploymentOrganizationActivityService.recordClosed).toHaveBeenCalledWith({ wallet, dseq: "123" }, { actorUserId: "member-1", reason: null });
+    });
+
+    it("follows up every close it lands, so a volume's close is finished once its reclamation window passes", async () => {
+      const { service, domainEvents } = setupForClose();
+      const wallet = createUserWallet({ userId: "user-123", feeAllowance: 100, deploymentAllowance: 100, isTrialing: false });
+
+      await service.executeDecodedTxByUserWallet(wallet, [closeMessageFor(123), closeMessageFor(456)]);
+
+      expect(domainEvents.publish).toHaveBeenCalledWith(new ManagedDeploymentClosed({ walletId: wallet.id, dseq: "123" }), {
+        singletonKey: `ManagedDeploymentClosed.123.${wallet.id}`
+      });
+      expect(domainEvents.publish).toHaveBeenCalledWith(new ManagedDeploymentClosed({ walletId: wallet.id, dseq: "456" }), {
+        singletonKey: `ManagedDeploymentClosed.456.${wallet.id}`
+      });
+    });
+
+    it("records nothing again for a close that completes one it recorded when it was first sent", async () => {
+      const { service, deploymentSettingRepository, deploymentOrganizationActivityService, domainEvents } = setupForClose();
+      const wallet = createUserWallet({ userId: "user-123", feeAllowance: 100, deploymentAllowance: 100, isTrialing: false });
+
+      await service.executeDecodedTxByUserWallet(wallet, [closeMessageFor(123)], { completesRecordedClose: true });
+
+      expect(deploymentSettingRepository.markClosed).not.toHaveBeenCalled();
+      expect(deploymentOrganizationActivityService.recordClosed).not.toHaveBeenCalled();
+      expect(domainEvents.publish).not.toHaveBeenCalledWith(expect.any(ManagedDeploymentClosed), expect.anything());
     });
 
     it("records nothing closed when the close reverted on chain", async () => {

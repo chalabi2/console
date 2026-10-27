@@ -15,6 +15,7 @@ import { inject, singleton } from "tsyringe";
 import { AuthService } from "@src/auth/services/auth.service";
 import { EnableDeploymentAlertCommand } from "@src/billing/commands/enable-deployment-alert.command";
 import { FundDeploymentCommand } from "@src/billing/commands/fund-deployment.command";
+import { ManagedDeploymentClosed } from "@src/billing/events/managed-deployment-closed";
 import { ManagedDeploymentLeaseCreated } from "@src/billing/events/managed-deployment-lease-created";
 import { TrialDeploymentLeaseCreated } from "@src/billing/events/trial-deployment-lease-created";
 import {
@@ -60,6 +61,8 @@ type ExecuteTxOptions = {
   /** The project a create the console built was filed into when it was accepted; a create its caller signs is filed here instead. */
   filingProjectId?: string;
   consoleClose?: ConsoleClose;
+  /** A close finishing one recorded when it was first sent, as the close that ends a volume's reclamation window is. */
+  completesRecordedClose?: boolean;
 };
 
 /** Who a landed transaction was signed for and where the deployments it creates are filed. */
@@ -223,7 +226,7 @@ export class ManagedSignerService {
       throw options?.suppliedByCaller ? this.chainErrorService.exposeSignerRefusal(error) : error;
     }
 
-    await this.#recordClosedDeployments(userWallet, messages, actingUserId, options?.consoleClose);
+    if (!options?.completesRecordedClose) await this.#recordClosedDeployments(userWallet, messages, actingUserId, options?.consoleClose);
 
     if (createLeaseMessage) {
       await this.#followUpLease(userWallet, { dseq: createLeaseMessage.value.bidId!.dseq.toString(), isFirstLease, actingUserId });
@@ -337,6 +340,9 @@ export class ManagedSignerService {
     for (const dseq of this.#findDeploymentDseqs(messages, ".MsgCloseDeployment")) {
       await this.#markClosed(userWallet, dseq.toString(), actingUserId);
       await this.deploymentOrganizationActivityService.recordClosed({ wallet: userWallet, dseq: dseq.toString() }, closer);
+      await this.domainEvents.publish(new ManagedDeploymentClosed({ walletId: userWallet.id, dseq: dseq.toString() }), {
+        singletonKey: `${ManagedDeploymentClosed.name}.${dseq}.${userWallet.id}`
+      });
     }
   }
 

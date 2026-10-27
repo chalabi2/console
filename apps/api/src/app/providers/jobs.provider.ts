@@ -20,6 +20,7 @@ import { CreateLeaseHandler } from "@src/deployment/services/create-lease/create
 import { DeleteUnbackedDeploymentSettingHandler } from "@src/deployment/services/delete-unbacked-deployment-setting/delete-unbacked-deployment-setting.handler";
 import { DetectLeaseGpusHandler } from "@src/deployment/services/detect-lease-gpus/detect-lease-gpus.handler";
 import { ExpireConfigureDraftHandler } from "@src/deployment/services/expire-configure-draft/expire-configure-draft.handler";
+import { FinishVolumeCloseHandler } from "@src/deployment/services/finish-volume-close/finish-volume-close.handler";
 import { MoveDeploymentAlertsHandler } from "@src/deployment/services/move-deployment-alerts/move-deployment-alerts.handler";
 import { ReconcileDeploymentCloseHandler } from "@src/deployment/services/reconcile-deployment-close/reconcile-deployment-close.handler";
 import { ReconcileDeploymentCreateHandler } from "@src/deployment/services/reconcile-deployment-create/reconcile-deployment-create.handler";
@@ -54,6 +55,7 @@ import { FirstPurchaseBonusWindowOpenedHandler } from "../services/first-purchas
 import { FirstPurchaseBonusWindowReminderHandler } from "../services/first-purchase-bonus-window-reminder/first-purchase-bonus-window-reminder.handler";
 import { FundDeploymentHandler } from "../services/fund-deployment/fund-deployment.handler";
 import { FundDrainingDeploymentsHandler } from "../services/fund-draining-deployments/fund-draining-deployments.handler";
+import { ManagedDeploymentClosedHandler } from "../services/managed-deployment-closed/managed-deployment-closed.handler";
 import { ManagedDeploymentLeaseCreatedHandler } from "../services/managed-deployment-lease-created/managed-deployment-lease-created.handler";
 import { TrialDeploymentLeaseCreatedHandler } from "../services/trial-deployment-lease-created/trial-deployment-lease-created.handler";
 import { TrialStartedHandler } from "../services/trial-started/trial-started.handler";
@@ -100,6 +102,8 @@ export async function startJobQueues(): Promise<void> {
     container.resolve(DetectLeaseGpusHandler),
     container.resolve(RecordLeaseGpuOffersHandler),
     container.resolve(ManagedDeploymentLeaseCreatedHandler),
+    container.resolve(ManagedDeploymentClosedHandler),
+    container.resolve(FinishVolumeCloseHandler),
     container.resolve(GpuWinBackCheckHandler),
     container.resolve(EnforceTrialAbuseHandler),
     container.resolve(LockBlockedDomainWalletHandler),
