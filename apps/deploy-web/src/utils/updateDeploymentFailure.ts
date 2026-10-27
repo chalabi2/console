@@ -7,6 +7,8 @@ const TRIAL_GATE_MARK = "not available on free trial";
 const ADD_CREDITS_TITLE = "Add credits to continue";
 /** The api answers this code when the chain took the update but the provider still validates manifests against the previous version. */
 const STALE_PROVIDER_VERSION_ERROR_CODE = "provider_manifest_version_stale";
+
+const RESIZE_PENDING_ERROR_CODE = "deployment_resize_pending";
 /** Each names what in the submitted resources a running lease cannot take, which the user answers by editing them rather than by retrying. */
 const RESOURCE_REFUSAL_ERROR_CODES = new Set([
   "deployment_resources_changed",
@@ -17,6 +19,11 @@ const RESOURCE_REFUSAL_ERROR_CODES = new Set([
 
 export const UPDATE_FAILURE_MESSAGE = "Something went wrong while updating the deployment. Please try again.";
 export const STALE_PROVIDER_VERSION_FALLBACK_MESSAGE = "Your update was accepted, but the provider has not picked it up yet. Wait a minute and try again.";
+
+/** A resize waiting for its provider holds back every update, so none goes through until the provider answers or the user cancels it. */
+export function isResizePending(cause: unknown): boolean {
+  return isApiError(cause) && cause.status === 409 && extractApiErrorCode(cause) === RESIZE_PENDING_ERROR_CODE;
+}
 
 export function isStaleProviderVersion(cause: unknown): boolean {
   return extractApiErrorCode(cause) === STALE_PROVIDER_VERSION_ERROR_CODE;

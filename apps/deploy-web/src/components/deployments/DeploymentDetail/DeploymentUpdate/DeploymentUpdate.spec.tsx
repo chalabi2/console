@@ -103,6 +103,26 @@ deployment:
       count: 1
 `;
 
+const VOLUME_SDL = `
+version: "2.2"
+volumes:
+  data:
+    size: 1Gi
+    class: beta3
+profiles:
+  placement:
+    global:
+      pricing:
+        data:
+          denom: uact
+          amount: 150
+deployment:
+  data:
+    global:
+      profile: data
+      count: 1
+`;
+
 const SINGLE_SERVICE_SDL = `
 version: "2.0"
 services:
@@ -331,6 +351,13 @@ describe(DeploymentUpdate.name, () => {
       expect(screen.queryByRole("region", { name: "api" })).not.toBeInTheDocument();
       expect(screen.getByRole("region", { name: "worker" })).toBeInTheDocument();
     });
+  });
+
+  it("edits a volume's own deployment through the volumes it declares", () => {
+    setup({ definition: { sdl: VOLUME_SDL } });
+
+    expect(screen.getByTestId("volume-update")).toHaveTextContent(`data:1Gi @ ${RECORDED_VERSION}`);
+    expect(screen.queryByText("Placements")).not.toBeInTheDocument();
   });
 
   describe("resizing", () => {
@@ -1350,6 +1377,9 @@ describe(DeploymentUpdate.name, () => {
     const onRedeployWithNewSecrets = vi.fn();
     const RawEditor = vi.fn(() => <div>raw-editor</div>);
     const DefinitionImport = vi.fn(DefinitionImportDouble);
+    const VolumeUpdate: typeof DEPENDENCIES.VolumeUpdate = ({ volumes, manifestVersion }) => (
+      <p data-testid="volume-update">{`${volumes.map(volume => `${volume.name}:${volume.size}`).join(",")} @ ${manifestVersion}`}</p>
+    );
     const ResizePricePreview: typeof DEPENDENCIES.ResizePricePreview = ({ lease, serviceIndexes }) => (
       <p data-testid="resize-price-preview">{`${lease.provider} ${serviceIndexes.join(",")}`}</p>
     );
@@ -1389,7 +1419,8 @@ describe(DeploymentUpdate.name, () => {
           useCancelDeploymentResize,
           useFlag,
           DefinitionImport,
-          ResizePricePreview
+          ResizePricePreview,
+          VolumeUpdate
         }}
       />
     );

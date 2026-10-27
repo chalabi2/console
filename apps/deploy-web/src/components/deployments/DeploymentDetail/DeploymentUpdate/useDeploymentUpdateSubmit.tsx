@@ -17,6 +17,7 @@ import {
   addCreditsContentOf,
   creditsRefusalOf,
   isClientRefusal,
+  isResizePending,
   isStaleProviderVersion,
   resourceRefusalOf,
   sdlRefusalOf,
@@ -42,7 +43,6 @@ export const DEPENDENCIES = {
 
 const HTTP_CONFLICT = 409;
 const DEFINITION_CHANGED_ERROR_CODE = "deployment_definition_changed";
-const RESIZE_PENDING_ERROR_CODE = "deployment_resize_pending";
 const STORED_SECRETS_UNREADABLE_ERROR_CODE = "stored_secrets_unreadable";
 const NOTHING_TO_UPDATE_MESSAGE = "Nothing has changed since this deployment was loaded.";
 const DEFINITION_CHANGED_MESSAGE = "This deployment was updated elsewhere, so the form now shows its current configuration. Make your changes again.";
@@ -70,11 +70,6 @@ function isStoredSecretsUnreadable(cause: unknown): boolean {
 
 function isDefinitionChanged(cause: unknown): boolean {
   return isApiError(cause) && cause.status === HTTP_CONFLICT && extractApiErrorCode(cause) === DEFINITION_CHANGED_ERROR_CODE;
-}
-
-/** A resize waiting for its provider holds back every update, so none goes through until the provider answers or the user cancels it. */
-function isResizePending(cause: unknown): boolean {
-  return isApiError(cause) && cause.status === HTTP_CONFLICT && extractApiErrorCode(cause) === RESIZE_PENDING_ERROR_CODE;
 }
 
 /** Only the definition, stale-provider and pending-resize conflicts are named; every other 409 on this route answers a seal made against a retired key. */

@@ -26,6 +26,8 @@ import { ProtectedVariablesNotice } from "./ProtectedVariablesNotice";
 import { ResizePricePreview } from "./ResizePricePreview";
 import { UpdatePlacementCard } from "./UpdatePlacementCard";
 import { useDeploymentUpdateSubmit } from "./useDeploymentUpdateSubmit";
+import { type DeclaredVolume, volumesDeclaredBy } from "./volumeDeclarations";
+import { VolumeUpdate } from "./VolumeUpdate";
 
 export const DEPENDENCIES = {
   useDeploymentUpdateSubmit,
@@ -35,7 +37,8 @@ export const DEPENDENCIES = {
   useCancelDeploymentResize,
   useFlag,
   DefinitionImport,
-  ResizePricePreview
+  ResizePricePreview,
+  VolumeUpdate
 };
 
 const UNAVAILABLE_NOTICE =
@@ -55,7 +58,8 @@ type DeploymentUpdateSeed =
   | { kind: "importable"; browserSdl: string | undefined }
   | { kind: "unavailable" }
   | { kind: "unreadable" }
-  | { kind: "ready"; values: SdlBuilderFormValuesType; manifestVersion: string };
+  | { kind: "ready"; values: SdlBuilderFormValuesType; manifestVersion: string }
+  | { kind: "volumes"; volumes: DeclaredVolume[]; manifestVersion: string };
 
 type ReadySeed = Extract<DeploymentUpdateSeed, { kind: "ready" }>;
 
@@ -64,6 +68,9 @@ function seedOf(definition: DeploymentDefinition): DeploymentUpdateSeed {
   if (definition.source === "resolving") return { kind: "resolving" };
   if (definition.isRecordedByConsole === false) return { kind: "importable", browserSdl: definition.source === "local" ? definition.sdl : undefined };
   if (definition.source !== "api" || !definition.sdl || !definition.manifestVersion) return { kind: "unavailable" };
+
+  const volumes = volumesDeclaredBy(definition.sdl);
+  if (volumes) return { kind: "volumes", volumes, manifestVersion: definition.manifestVersion };
 
   try {
     return { kind: "ready", values: importDeploymentState(definition.sdl).values, manifestVersion: definition.manifestVersion };
@@ -164,6 +171,19 @@ export const DeploymentUpdate: FC<DeploymentUpdateProps> = ({
 
   if (seed.kind === "importable") {
     return <d.DefinitionImport key={deployment.dseq} deployment={deployment} browserSdl={seed.browserSdl} onImported={onUpdated} />;
+  }
+
+  if (seed.kind === "volumes") {
+    return (
+      <d.VolumeUpdate
+        key={`${deployment.dseq}:${seed.volumes.map(volume => volume.size).join(",")}`}
+        deployment={deployment}
+        leases={leases}
+        volumes={seed.volumes}
+        manifestVersion={seed.manifestVersion}
+        onUpdated={onUpdated}
+      />
+    );
   }
 
   if (seed.kind === "unavailable" || seed.kind === "unreadable") {

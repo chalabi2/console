@@ -1,7 +1,15 @@
 import { ApiError } from "@akashnetwork/openapi-sdk";
 import { describe, expect, it } from "vitest";
 
-import { addCreditsContentOf, creditsRefusalOf, isClientRefusal, isStaleProviderVersion, resourceRefusalOf, sdlRefusalOf } from "./updateDeploymentFailure";
+import {
+  addCreditsContentOf,
+  creditsRefusalOf,
+  isClientRefusal,
+  isResizePending,
+  isStaleProviderVersion,
+  resourceRefusalOf,
+  sdlRefusalOf
+} from "./updateDeploymentFailure";
 
 const BAD_SDL = new ApiError(400, { message: "SDL is not valid YAML: line 3, column 5" }, "PATCH /v1/deployments/{dseq} → 400");
 const PATCHED_SDL_TOO_LARGE = new ApiError(
@@ -135,5 +143,22 @@ describe("resourceRefusalOf", () => {
     { named: "an error that is not the api's", cause: new Error("offline") }
   ])("returns nothing for $named", ({ cause }) => {
     expect(resourceRefusalOf(cause)).toBeNull();
+  });
+});
+
+describe("isResizePending", () => {
+  it("tells a conflict over a resize waiting for its provider", () => {
+    expect(isResizePending(new ApiError(409, { message: "A resize is waiting", code: "deployment_resize_pending" }, "PATCH → 409"))).toBe(true);
+  });
+
+  it.each([
+    { case: "another conflict", cause: new ApiError(409, { message: "Changed elsewhere", code: "deployment_definition_changed" }, "PATCH → 409") },
+    {
+      case: "the same code answered as no conflict",
+      cause: new ApiError(422, { message: "A resize is waiting", code: "deployment_resize_pending" }, "PATCH → 422")
+    },
+    { case: "an error the api did not answer", cause: Object.assign(new Error("offline"), { status: 409, code: "deployment_resize_pending" }) }
+  ])("tells no pending resize from $case", ({ cause }) => {
+    expect(isResizePending(cause)).toBe(false);
   });
 });
