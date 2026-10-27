@@ -22,6 +22,8 @@ export const browserEnvSchema = z.object({
   NEXT_PUBLIC_BASE_API_MAINNET_URL: z.string(),
   NEXT_PUBLIC_BASE_API_TESTNET_URL: z.string(),
   NEXT_PUBLIC_BASE_API_SANDBOX_URL: z.string(),
+  /** Replaces the selected network's public REST node for every chain read the browser makes, as running against a local chain needs. */
+  NEXT_PUBLIC_CHAIN_REST_API_URL: z.string().url().optional(),
   NEXT_PUBLIC_GA_MEASUREMENT_ID: z.string(),
   NEXT_PUBLIC_GA_ENABLED: coercedBoolean(),
   NEXT_PUBLIC_AMPLITUDE_ENABLED: coercedBoolean(),

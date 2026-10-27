@@ -80,6 +80,7 @@ export interface ContentSecurityPolicyInput {
   unleashFrontendApiUrl?: string;
   sentryDsn?: string;
   templatesUrl?: string;
+  chainRestApiUrl?: string;
   networkRpcAndApiUrls?: string[];
   reportViolations?: boolean;
   /** No app script carries it: Cloudflare reads it from the response header and stamps it onto the bot detection script its edge injects. */
@@ -160,6 +161,7 @@ export function buildContentSecurityPolicy(input: ContentSecurityPolicyInput) {
     toOrigin(input.unleashFrontendApiUrl),
     toOrigin(input.sentryDsn),
     toOrigin(input.templatesUrl),
+    toOrigin(input.chainRestApiUrl),
     ...(input.networkRpcAndApiUrls ?? []).map(toOrigin)
   ];
 

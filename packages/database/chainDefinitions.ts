@@ -167,4 +167,11 @@ export const chainDefinitions: { [key: string]: ChainDef } = {
   }
 };
 
-export const activeChain = chainDefinitions[process.env.ACTIVE_CHAIN || "akash"];
+/** A node of one's own stands in for the network's public ones, as indexing a local chain needs. */
+function withRpcNodesOverride(chain: ChainDef): ChainDef {
+  const rpcNodes = process.env.CHAIN_RPC_NODE_URLS?.split(",").filter(Boolean);
+
+  return rpcNodes?.length ? { ...chain, rpcNodes } : chain;
+}
+
+export const activeChain = withRpcNodesOverride(chainDefinitions[process.env.ACTIVE_CHAIN || "akash"]);

@@ -49,7 +49,7 @@ function createAppContainer<T extends Factories>(blockchainStatus: BlockchainSta
       let isBlockchainDown = blockchainStatus.isBlockchainDown;
       const chainApiHttpClient: FallbackableHttpClient = rootContainer.applyAxiosInterceptors(
         createFallbackableHttpClient(rootContainer.createAxios, rootContainer.fallbackChainApiHttpClient, {
-          baseURL: netConfig.getBaseAPIUrl(rootContainer.networkStore.selectedNetworkId),
+          baseURL: rootContainer.publicConfig.NEXT_PUBLIC_CHAIN_REST_API_URL ?? netConfig.getBaseAPIUrl(rootContainer.networkStore.selectedNetworkId),
           shouldFallback: () => isBlockchainDown || blockchainStatus.isBlockchainDown,
           onUnavailableError: (error): Promise<void> | void => {
             if (isBlockchainDown) return;

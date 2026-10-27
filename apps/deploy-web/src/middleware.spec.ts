@@ -42,6 +42,18 @@ describe("middleware", () => {
     expect(response.headers.get("Content-Security-Policy")).toBeNull();
   });
 
+  it("lets the browser reach the chain node the environment names", () => {
+    vi.stubEnv("NEXT_PUBLIC_CHAIN_REST_API_URL", "http://localhost:31317");
+
+    const { response } = setup({ path: "/deployments" });
+
+    const connectSrc = response.headers
+      .get("Content-Security-Policy-Report-Only")
+      ?.split("; ")
+      .find(directive => directive.startsWith("connect-src "));
+    expect(connectSrc).toContain("http://localhost:31317");
+  });
+
   it("gives every response a fresh script nonce for Cloudflare to stamp onto its injected script", () => {
     const first = setup({ path: "/" });
     const second = setup({ path: "/" });

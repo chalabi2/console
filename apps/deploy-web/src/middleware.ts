@@ -31,6 +31,7 @@ export function middleware(request: NextRequest) {
     unleashFrontendApiUrl: process.env.NEXT_PUBLIC_UNLEASH_FRONTEND_API_URL,
     sentryDsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
     templatesUrl: process.env.NEXT_PUBLIC_BASE_TEMPLATES_URL,
+    chainRestApiUrl: process.env.NEXT_PUBLIC_CHAIN_REST_API_URL,
     networkRpcAndApiUrls,
     reportViolations: isSampledForViolationReports(),
     scriptNonce: generateScriptNonce()

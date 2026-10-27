@@ -135,6 +135,12 @@ describe("csp", () => {
       expect(connectSrc).toContain("https://akash-templates.pages.dev");
     });
 
+    it("lets the browser reach the chain node the environment names", () => {
+      const { connectSrc } = setup({ chainRestApiUrl: "http://localhost:31317/" });
+
+      expect(connectSrc).toContain("http://localhost:31317");
+    });
+
     it("allows any https image source because template logos point at arbitrary origins", () => {
       const { imgSrc } = setup({});
 
