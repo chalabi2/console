@@ -1,13 +1,24 @@
 import yaml from "js-yaml";
 
 import { isLogCollectorService } from "@src/components/sdl/LogCollectorControl/LogCollectorControl";
-import type { ExposeType, PlacementType, ProfileGpuModelType, SdlBuilderFormValuesType, ServiceExposeHTTPProxyType, ServiceType } from "@src/types";
+import type {
+  AttachedVolumeType,
+  ExposeType,
+  PlacementType,
+  ProfileGpuModelType,
+  SdlBuilderFormValuesType,
+  ServiceExposeHTTPProxyType,
+  ServiceType
+} from "@src/types";
 import { defaultHttpOptions } from "./data";
 import { sdlRegionOf } from "./placementRegions";
 import { parseSvcCommand } from "./sdlImport";
 import { credentialSecretSlotKey, envSecretSlotKey, isSdlReference, resolveSdlSecrets } from "./sdlSecrets";
 
 const LOG_COLLECTOR_PERMISSIONS = { read: ["deployment", "logs", "events"] };
+
+/** The first SDL version with a `volumes` section, which a deployment needs to mount a volume leased as its own deployment. */
+const VOLUMES_SDL_VERSION = "2.2";
 
 export interface GenerateSdlOptions {
   /** Emits every secret, env and registry credential alike, as a reference for the create to seal values under, instead of as typed. */
@@ -47,7 +58,14 @@ function plainEnvValueOf(variable: { value?: string; isSecret?: boolean }): stri
 }
 
 export const generateSdl = (formValues: SdlBuilderFormValuesType, options: GenerateSdlOptions = {}) => {
-  const sdl: Record<string, any> = { version: "2.0", services: {}, profiles: { compute: {}, placement: {} }, deployment: {} };
+  const attachedVolumes = formValues.services.flatMap(service => service.volumes ?? []);
+  const sdl: Record<string, any> = {
+    version: attachedVolumes.length > 0 ? VOLUMES_SDL_VERSION : "2.0",
+    ...(attachedVolumes.length > 0 && { volumes: externalVolumesOf(attachedVolumes) }),
+    services: {},
+    profiles: { compute: {}, placement: {} },
+    deployment: {}
+  };
 
   // Optional deployment-level reclamation requirement. Omitted entirely when unset ("Any"), which
   // signals the user has no minimum-window requirement.
@@ -241,6 +259,13 @@ export const generateSdl = (formValues: SdlBuilderFormValuesType, options: Gener
       });
     }
 
+    if (service.volumes?.length) {
+      sdl.services[service.title].params = {
+        ...sdl.services[service.title].params,
+        storage: { ...sdl.services[service.title].params?.storage, ...volumeMountsOf(service.volumes) }
+      };
+    }
+
     const permissions = isLogCollectorService(service) ? LOG_COLLECTOR_PERMISSIONS : service.params?.permissions;
     if (permissions) {
       sdl.services[service.title].params = {
@@ -293,6 +318,14 @@ export const generateSdl = (formValues: SdlBuilderFormValuesType, options: Gener
   return `---
 ${result}`;
 };
+
+function externalVolumesOf(volumes: AttachedVolumeType[]): Record<string, { external: { owner?: string; dseq: number } }> {
+  return Object.fromEntries(volumes.map(volume => [volume.name, { external: { ...(volume.owner && { owner: volume.owner }), dseq: Number(volume.dseq) } }]));
+}
+
+function volumeMountsOf(volumes: AttachedVolumeType[]): Record<string, { mount: string; readOnly: boolean; volume: string }> {
+  return Object.fromEntries(volumes.map(volume => [volume.name, { mount: volume.mount, readOnly: !!volume.isReadOnly, volume: volume.name }]));
+}
 
 /** Tokens an SDL wrote in a way the form's one-per-line text cannot hold stand for as long as that text still reads as they imported. */
 function sdlTokensOf(text: string | undefined, importedTokens: string[] | undefined): string[] {

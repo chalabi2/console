@@ -4,7 +4,9 @@ import { describe, expect, it } from "vitest";
 import { LOG_COLLECTOR_IMAGE } from "@src/config/log-collector.config";
 import type { PlacementType, SdlBuilderFormValuesType, ServiceExposeHTTPProxyType, ServiceType } from "@src/types";
 import { getManifest } from "@src/utils/deploymentData/v1beta3";
+import { defaultPersistentStorage, defaultServiceWithPlacement } from "./data";
 import { buildCommand, generateSdl } from "./sdlGenerator";
+import { validateGeneratedSdl } from "./validateGeneratedSdl";
 
 const fullProxy: ServiceExposeHTTPProxyType = {
   bufferingDisable: true,
@@ -569,5 +571,54 @@ describe("CPU architecture", () => {
     } as ServiceType;
 
     return { placements: [placement], services: [service] } as SdlBuilderFormValuesType;
+  }
+});
+
+describe("mounted volumes", () => {
+  const OWNER = "akash16dks5lmpvzz4rsaxvlmd50t8ec62dxqspmpdn6";
+
+  it("writes a mounted volume as a reference to its own deployment, at the version that has volumes", () => {
+    const sdl = yaml.load(generateSdl(buildFormValues([{ name: "data", owner: OWNER, dseq: "1793083597928", mount: "/data" }]))) as Record<string, any>;
+
+    expect(sdl.version).toBe("2.2");
+    expect(sdl.volumes).toEqual({ data: { external: { owner: OWNER, dseq: 1793083597928 } } });
+    expect(sdl.services.web.params.storage).toEqual({ data: { mount: "/data", readOnly: false, volume: "data" } });
+  });
+
+  it("mounts a volume beside the persistent storage the service leases itself", () => {
+    const values = buildFormValues([{ name: "data", owner: OWNER, dseq: "12", mount: "/data", isReadOnly: true }]);
+    values.services[0].profile.storage.push({ ...defaultPersistentStorage, name: "cache", mount: "/mnt/cache" });
+
+    const sdl = yaml.load(generateSdl(values)) as Record<string, any>;
+
+    expect(sdl.services.web.params.storage).toEqual({
+      cache: { mount: "/mnt/cache", readOnly: false },
+      data: { mount: "/data", readOnly: true, volume: "data" }
+    });
+  });
+
+  it("leaves the owner to the signer when the form does not name one", () => {
+    const sdl = yaml.load(generateSdl(buildFormValues([{ name: "data", dseq: "12", mount: "/data" }]))) as Record<string, any>;
+
+    expect(sdl.volumes).toEqual({ data: { external: { dseq: 12 } } });
+  });
+
+  it("keeps a deployment that mounts no volume at the version it always had", () => {
+    const sdl = yaml.load(generateSdl(buildFormValues([]))) as Record<string, any>;
+
+    expect(sdl.version).toBe("2.0");
+    expect(sdl).not.toHaveProperty("volumes");
+  });
+
+  it("writes an sdl the chain validator accepts", () => {
+    const sdl = generateSdl(buildFormValues([{ name: "data", owner: OWNER, dseq: "1793083597928", mount: "/data" }]));
+
+    expect(validateGeneratedSdl(sdl)).toEqual([]);
+  });
+
+  function buildFormValues(volumes: SdlBuilderFormValuesType["services"][number]["volumes"]): SdlBuilderFormValuesType {
+    const values = defaultServiceWithPlacement({ title: "web", image: "nginx:1.27" });
+    values.services[0].volumes = volumes && volumes.length > 0 ? volumes : undefined;
+    return values;
   }
 });

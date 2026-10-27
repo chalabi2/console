@@ -62,6 +62,18 @@ export const ServiceStorageSchema = z.object({
   isReadOnly: z.boolean().optional()
 });
 
+/** A volume leased as its own deployment, which a service mounts by reference and which brings its own size and class. */
+export const AttachedVolumeSchema = z.object({
+  name: z.string().min(1, { message: "Choose a volume." }),
+  owner: z.string().optional(),
+  dseq: z.string().min(1, { message: "Choose a volume." }),
+  mount: z
+    .string()
+    .min(1, { message: "Mount is required." })
+    .regex(/^\/.*$/, { message: "Mount must be an absolute path." }),
+  isReadOnly: z.boolean().optional()
+});
+
 export const CommandSchema = z.object({
   command: z.string().optional(),
   arg: z.string().optional(),
@@ -546,9 +558,38 @@ export const ServiceSchema = z
         // Preserved verbatim through the builder round-trip; not yet editable in the form UI.
         tee: z.enum(["cpu", "cpu-gpu"]).optional()
       })
-      .optional()
+      .optional(),
+    volumes: z.array(AttachedVolumeSchema).optional()
   })
-  .superRefine(refuseResourcesOutOfBounds);
+  .superRefine((service, context) => {
+    refuseResourcesOutOfBounds(service, context);
+    refuseVolumeClashes(service, context);
+  });
+
+/** A mounted volume is named in the same params as the service's storage, where the root storage goes by "default", and it needs a mount of its own. */
+function refuseVolumeClashes(
+  service: { profile: { storage: Array<{ name?: string; mount?: string }> }; volumes?: Array<{ name: string; mount: string }> },
+  context: z.RefinementCtx
+) {
+  const volumes = service.volumes ?? [];
+  const storageNames = new Set(["default", ...service.profile.storage.flatMap(storage => (storage.name ? [storage.name] : []))]);
+  const storageMounts = new Set(service.profile.storage.flatMap(storage => (storage.mount ? [storage.mount] : [])));
+  const sharedMounts = findDuplicateIndexes(volumes, volume => volume.mount);
+
+  volumes.forEach((volume, index) => {
+    if (storageNames.has(volume.name)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Volume "${volume.name}" shares its name with a storage of this service.`,
+        path: ["volumes", index, "name"]
+      });
+    }
+
+    if (storageMounts.has(volume.mount) || sharedMounts.has(index)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "Mount must be unique.", path: ["volumes", index, "mount"] });
+    }
+  });
+}
 
 /** A new deployment and a lease resized in place hold a service's compute to the same bounds. */
 export function refuseResourcesOutOfBounds(
@@ -637,6 +678,17 @@ export const SdlBuilderFormValuesSchema = z
         message: "Service name must be unique.",
         path: ["services", index, "title"],
         fatal: true
+      });
+    }
+
+    const mountedVolumes = data.services.flatMap((service, serviceIndex) =>
+      (service.volumes ?? []).map((volume, volumeIndex) => ({ key: `${volume.owner ?? ""}/${volume.dseq}`, serviceIndex, volumeIndex }))
+    );
+    for (const index of findDuplicateIndexes(mountedVolumes, volume => volume.key)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "A volume can be mounted by one service only.",
+        path: ["services", mountedVolumes[index].serviceIndex, "volumes", mountedVolumes[index].volumeIndex, "name"]
       });
     }
 
@@ -733,6 +785,7 @@ export const SdlBuilderFormValuesSchema = z
   });
 
 export type ServiceType = z.infer<typeof ServiceSchema>;
+export type AttachedVolumeType = z.infer<typeof AttachedVolumeSchema>;
 export type SdlBuilderFormValuesType = z.infer<typeof SdlBuilderFormValuesSchema>;
 export type ProfileGpuModelType = z.infer<typeof ProfileGpuModelSchema>;
 export type CpuArchType = (typeof CPU_ARCHITECTURES)[number];

@@ -977,3 +977,79 @@ function serviceSdl(input: { serviceLines?: string[]; storageLines?: string[]; m
     ""
   ].join("\n");
 }
+
+describe("mounted volumes", () => {
+  const OWNER = "akash16dks5lmpvzz4rsaxvlmd50t8ec62dxqspmpdn6";
+
+  it("reads a mounted volume back from its reference to its own deployment", () => {
+    const [service] = importSimpleSdl(attachingSdl({ owner: OWNER })).services;
+
+    expect(service.volumes).toEqual([{ name: "data", owner: OWNER, dseq: "1793083597928", mount: "/data", isReadOnly: true }]);
+  });
+
+  it("reads a volume reference that leaves its owner to the signer", () => {
+    const [service] = importSimpleSdl(attachingSdl({})).services;
+
+    expect(service.volumes).toEqual([{ name: "data", dseq: "1793083597928", mount: "/data", isReadOnly: true }]);
+  });
+
+  it("leaves out a mount whose volume the sdl does not reference", () => {
+    const [service] = importSimpleSdl(attachingSdl({ owner: OWNER }).replace("volume: data", "volume: other")).services;
+
+    expect(service.volumes).toBeUndefined();
+  });
+
+  it("gives back the volumes the generator wrote", () => {
+    const values = defaultServiceWithPlacement({ title: "web", image: "nginx:1.27" });
+    values.services[0].volumes = [{ name: "data", owner: OWNER, dseq: "12", mount: "/data", isReadOnly: false }];
+
+    expect(importSimpleSdl(generateSdl(values)).services[0].volumes).toEqual(values.services[0].volumes);
+  });
+
+  function attachingSdl(input: { owner?: string }): string {
+    return [
+      'version: "2.2"',
+      "volumes:",
+      "  data:",
+      "    external:",
+      ...(input.owner ? [`      owner: ${input.owner}`] : []),
+      "      dseq: 1793083597928",
+      "services:",
+      "  web:",
+      "    image: nginx:1.27",
+      "    expose:",
+      "      - port: 80",
+      "        as: 80",
+      "        to:",
+      "          - global: true",
+      "    params:",
+      "      storage:",
+      "        data:",
+      "          mount: /data",
+      "          readOnly: true",
+      "          volume: data",
+      "profiles:",
+      "  compute:",
+      "    web:",
+      "      resources:",
+      "        cpu:",
+      "          units: 0.5",
+      "        memory:",
+      "          size: 512Mi",
+      "        storage:",
+      "          size: 1Gi",
+      "  placement:",
+      "    dcloud:",
+      "      pricing:",
+      "        web:",
+      "          denom: uact",
+      "          amount: 1000",
+      "deployment:",
+      "  web:",
+      "    dcloud:",
+      "      profile: web",
+      "      count: 1",
+      ""
+    ].join("\n");
+  }
+});

@@ -2,6 +2,7 @@ import yaml from "js-yaml";
 import { nanoid } from "nanoid";
 
 import type {
+  AttachedVolumeType,
   CpuArchType,
   EndpointType,
   ExposeType,
@@ -64,6 +65,8 @@ export const importSimpleSdl = (yamlStr: string, { placementPerService = false }
     const reclamationMinWindow = reclamationParse.success ? reclamationParse.data : undefined;
 
     if (!yamlJson.services) return { placements, services, endpoints, reclamationMinWindow };
+
+    const externalVolumes = externalVolumesOf(yamlJson.volumes);
 
     Object.keys(yamlJson.services).forEach(svcName => {
       const svc = yamlJson.services[svcName];
@@ -201,6 +204,9 @@ export const importSimpleSdl = (yamlStr: string, { placementPerService = false }
 
       service.params = preservedParamsOf(svc.params);
 
+      const volumes = attachedVolumesOf(svc.params?.storage, externalVolumes);
+      if (volumes.length > 0) service.volumes = volumes;
+
       services.push(service as ServiceType);
     });
 
@@ -220,6 +226,30 @@ function withRootStorageFirst<T extends { mount?: string }>(storages: T[]): T[] 
 function protoOf(proto: unknown): ExposeType["proto"] {
   const lowercased = typeof proto === "string" ? proto.toLowerCase() : undefined;
   return lowercased === "tcp" || lowercased === "udp" ? lowercased : "http";
+}
+
+type ExternalVolume = Pick<AttachedVolumeType, "owner" | "dseq">;
+
+/** Only a volume another deployment leases can be mounted from the form, so a volume this SDL declares for itself is left out. */
+function externalVolumesOf(volumes: unknown): Map<string, ExternalVolume> {
+  if (!volumes || typeof volumes !== "object") return new Map();
+
+  return new Map(
+    Object.entries(volumes as Record<string, any>).flatMap(([name, volume]) => {
+      const external = volume?.external;
+      if (!external || external.dseq === undefined) return [];
+      return [[name, { ...(typeof external.owner === "string" && { owner: external.owner }), dseq: String(external.dseq) }]];
+    })
+  );
+}
+
+function attachedVolumesOf(storageParams: unknown, externalVolumes: Map<string, ExternalVolume>): AttachedVolumeType[] {
+  if (!storageParams || typeof storageParams !== "object") return [];
+
+  return Object.values(storageParams as Record<string, any>).flatMap(params => {
+    const external = typeof params?.volume === "string" ? externalVolumes.get(params.volume) : undefined;
+    return external ? [{ name: params.volume, ...external, mount: params.mount ?? "", isReadOnly: !!params.readOnly }] : [];
+  });
 }
 
 /** Service params the form carries without editing them, so a round trip writes them back unchanged. */

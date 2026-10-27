@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { defaultPersistentStorage, defaultServiceWithPlacement } from "@src/utils/sdl/data";
 import {
   CredentialsSchema,
   EndpointSchema,
@@ -766,5 +767,65 @@ describe("ProfileSchema cpu architecture", () => {
       ramUnit: "Mi",
       storage: [{ size: 512, unit: "Mi", isPersistent: false }]
     };
+  }
+});
+
+describe("mounted volumes", () => {
+  const VOLUME = { name: "data", owner: "akash1owner", dseq: "12", mount: "/data" };
+
+  it("accepts a service that mounts a volume leased as its own deployment", () => {
+    expect(SdlBuilderFormValuesSchema.safeParse(buildFormValues([VOLUME])).success).toBe(true);
+  });
+
+  it.each([
+    { case: "the root storage's", name: "default" },
+    { case: "a persistent storage's", name: "cache" }
+  ])("refuses a volume that takes $case name", ({ name }) => {
+    const result = SdlBuilderFormValuesSchema.safeParse(buildFormValues([{ ...VOLUME, name }], { persistentStorage: true }));
+
+    expect(result.error?.issues).toContainEqual(
+      expect.objectContaining({ path: ["services", 0, "volumes", 0, "name"], message: `Volume "${name}" shares its name with a storage of this service.` })
+    );
+  });
+
+  it("refuses a volume mounted where a persistent storage is", () => {
+    const result = SdlBuilderFormValuesSchema.safeParse(buildFormValues([{ ...VOLUME, mount: "/mnt/cache" }], { persistentStorage: true }));
+
+    expect(result.error?.issues).toContainEqual(expect.objectContaining({ path: ["services", 0, "volumes", 0, "mount"], message: "Mount must be unique." }));
+  });
+
+  it("refuses two volumes mounted at the same path", () => {
+    const result = SdlBuilderFormValuesSchema.safeParse(buildFormValues([VOLUME, { ...VOLUME, name: "logs", dseq: "13" }]));
+
+    expect(result.error?.issues).toContainEqual(expect.objectContaining({ path: ["services", 0, "volumes", 1, "mount"], message: "Mount must be unique." }));
+  });
+
+  it("refuses a volume mounted by two services", () => {
+    const values = buildFormValues([VOLUME]);
+    values.services.push({ ...values.services[0], id: "worker", title: "worker" });
+
+    const result = SdlBuilderFormValuesSchema.safeParse(values);
+
+    expect(result.error?.issues).toContainEqual(
+      expect.objectContaining({ path: ["services", 1, "volumes", 0, "name"], message: "A volume can be mounted by one service only." })
+    );
+  });
+
+  it("asks for a volume and a mount for a row left empty", () => {
+    const result = SdlBuilderFormValuesSchema.safeParse(buildFormValues([{ name: "", dseq: "", mount: "" }]));
+
+    expect(result.error?.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: ["services", 0, "volumes", 0, "name"], message: "Choose a volume." }),
+        expect.objectContaining({ path: ["services", 0, "volumes", 0, "mount"], message: "Mount is required." })
+      ])
+    );
+  });
+
+  function buildFormValues(volumes: Array<{ name: string; owner?: string; dseq: string; mount: string }>, input: { persistentStorage?: boolean } = {}) {
+    const values = defaultServiceWithPlacement({ title: "web", image: "nginx:1.27" });
+    values.services[0].volumes = volumes;
+    if (input.persistentStorage) values.services[0].profile.storage.push({ ...defaultPersistentStorage, name: "cache", mount: "/mnt/cache" });
+    return values;
   }
 });
