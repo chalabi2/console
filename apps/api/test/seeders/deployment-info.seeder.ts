@@ -14,6 +14,8 @@ export interface DeploymentInfoSeederInput {
   state?: string;
   version?: string;
   createdAt?: string;
+  /** The height the chain last settled the escrow account at, which is where it opened until the account first settles. */
+  settledAt?: string;
   amount?: string;
   denom?: string;
   groups?: DeploymentInfo["groups"];
@@ -118,6 +120,7 @@ export function createDeploymentInfoSeed(input: DeploymentInfoSeederInput = {}):
     state = "active",
     version = deploymentVersion,
     createdAt = "2021-01-01T00:00:00Z",
+    settledAt = createdAt,
     amount = "5000000",
     denom = createDenom(),
     groups = []
@@ -148,7 +151,7 @@ export function createDeploymentInfoSeed(input: DeploymentInfoSeederInput = {}):
             amount: "0"
           }
         ],
-        settled_at: new Date().toISOString(),
+        settled_at: settledAt,
         funds: [
           {
             denom,
