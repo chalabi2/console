@@ -357,6 +357,18 @@ describe(DeploymentUpdate.name, () => {
       expect(serviceIn(current, "web").count).toBe(4);
     });
 
+    it("previews the price of new hardware on each placement a lease backs, for the services it runs", () => {
+      setup({ canResize: true, leases: [leaseOn("edge-us", "akash1us")] });
+
+      expect(screen.getAllByTestId("resize-price-preview").map(preview => preview.textContent)).toEqual(["akash1us 0,1"]);
+    });
+
+    it("previews no price while resizing is off", () => {
+      setup({ canResize: false });
+
+      expect(screen.queryByTestId("resize-price-preview")).not.toBeInTheDocument();
+    });
+
     it("refuses an emptied amount, without submitting", async () => {
       const { submit } = setup({ canResize: true });
 
@@ -1338,6 +1350,9 @@ describe(DeploymentUpdate.name, () => {
     const onRedeployWithNewSecrets = vi.fn();
     const RawEditor = vi.fn(() => <div>raw-editor</div>);
     const DefinitionImport = vi.fn(DefinitionImportDouble);
+    const ResizePricePreview: typeof DEPENDENCIES.ResizePricePreview = ({ lease, serviceIndexes }) => (
+      <p data-testid="resize-price-preview">{`${lease.provider} ${serviceIndexes.join(",")}`}</p>
+    );
     const deployment = mock<DeploymentDto>({ dseq: "1234", state: input.deploymentState ?? "active" });
     const leases = input.leases === undefined ? [leaseOn("edge-us", "akash1us"), leaseOn("edge-eu", "akash1eu")] : input.leases;
     const providers = [
@@ -1373,7 +1388,8 @@ describe(DeploymentUpdate.name, () => {
           usePendingDeploymentResize,
           useCancelDeploymentResize,
           useFlag,
-          DefinitionImport
+          DefinitionImport,
+          ResizePricePreview
         }}
       />
     );

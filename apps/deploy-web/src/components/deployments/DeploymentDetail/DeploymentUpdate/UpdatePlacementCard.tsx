@@ -1,5 +1,5 @@
 "use client";
-import type { FC } from "react";
+import type { FC, ReactNode } from "react";
 import { useState } from "react";
 import { ChevronRight, MapPin, Server } from "lucide-react";
 
@@ -25,9 +25,20 @@ export interface UpdatePlacementCardProps {
   locked: boolean;
   isLoadingLeaseGpus?: boolean;
   canResize?: boolean;
+  footer?: ReactNode;
 }
 
-export const UpdatePlacementCard: FC<UpdatePlacementCardProps> = ({ position, name, lease, provider, services, locked, isLoadingLeaseGpus, canResize }) => {
+export const UpdatePlacementCard: FC<UpdatePlacementCardProps> = ({
+  position,
+  name,
+  lease,
+  provider,
+  services,
+  locked,
+  isLoadingLeaseGpus,
+  canResize,
+  footer
+}) => {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
   const region = getProviderRegion(provider);
   const providerName = provider ? providerDisplayName(provider) : undefined;
@@ -108,6 +119,7 @@ export const UpdatePlacementCard: FC<UpdatePlacementCardProps> = ({ position, na
             canResize={canResize}
           />
         ))}
+        {footer}
       </div>
     </section>
   );

@@ -23,6 +23,7 @@ import { DefinitionImport } from "./DefinitionImport";
 import type { DeploymentUpdateFormValues } from "./deploymentUpdateFormSchema";
 import { deploymentUpdateFormSchemaFor } from "./deploymentUpdateFormSchema";
 import { ProtectedVariablesNotice } from "./ProtectedVariablesNotice";
+import { ResizePricePreview } from "./ResizePricePreview";
 import { UpdatePlacementCard } from "./UpdatePlacementCard";
 import { useDeploymentUpdateSubmit } from "./useDeploymentUpdateSubmit";
 
@@ -33,7 +34,8 @@ export const DEPENDENCIES = {
   usePendingDeploymentResize,
   useCancelDeploymentResize,
   useFlag,
-  DefinitionImport
+  DefinitionImport,
+  ResizePricePreview
 };
 
 const UNAVAILABLE_NOTICE =
@@ -218,6 +220,9 @@ export const DeploymentUpdate: FC<DeploymentUpdateProps> = ({
 
         {baseline.values.placements.map((placement, position) => {
           const lease = leases?.find((candidate, index) => getPlacementName(candidate.group, index) === placement.name);
+          const services = visibleServices
+            .filter(({ service }) => service.placementId === placement.id)
+            .map(({ service, serviceIndex }) => ({ serviceIndex, title: service.title }));
           return (
             <UpdatePlacementCard
               key={placement.name}
@@ -225,12 +230,20 @@ export const DeploymentUpdate: FC<DeploymentUpdateProps> = ({
               name={placement.name}
               lease={lease}
               provider={providers.find(candidate => candidate.owner === lease?.provider)}
-              services={visibleServices
-                .filter(({ service }) => service.placementId === placement.id)
-                .map(({ service, serviceIndex }) => ({ serviceIndex, title: service.title }))}
+              services={services}
               locked={isClosed || isBusy || isReloading}
               isLoadingLeaseGpus={isLoadingLeaseGpus}
               canResize={canResize}
+              footer={
+                canResize &&
+                lease && (
+                  <d.ResizePricePreview
+                    lease={lease}
+                    loadedServices={baseline.values.services}
+                    serviceIndexes={services.map(service => service.serviceIndex)}
+                  />
+                )
+              }
             />
           );
         })}
