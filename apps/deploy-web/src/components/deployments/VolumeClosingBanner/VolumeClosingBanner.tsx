@@ -1,13 +1,11 @@
 "use client";
 import type { FC } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@akashnetwork/ui/components";
-import formatDuration from "date-fns/formatDuration";
-import intervalToDuration from "date-fns/intervalToDuration";
 import { Info } from "lucide-react";
 
 import type { LeaseDto } from "@src/types/deployment";
-import { getReclamationDeadline, isClosingVolume, parseReclamationWindowSeconds } from "@src/utils/reclamationUtils";
-import { type GroupVolume, volumeOf } from "@src/utils/volumeUtils";
+import { getReclamationDeadline, isClosingVolume } from "@src/utils/reclamationUtils";
+import { volumeAfterCloseOf, volumeOf } from "@src/utils/volumeUtils";
 import { useCountdown } from "../ReclamationBanner/useCountdown";
 
 export const DEPENDENCIES = { useCountdown };
@@ -24,7 +22,7 @@ export const VolumeClosingBanner: FC<VolumeClosingBannerProps> = ({ leases, clas
 
   if (!closingLease) return null;
 
-  const afterClose = afterCloseOf(volumeOf(closingLease.group));
+  const afterClose = volumeAfterCloseOf(volumeOf(closingLease.group));
 
   return (
     <Alert className={className}>
@@ -41,12 +39,3 @@ export const VolumeClosingBanner: FC<VolumeClosingBannerProps> = ({ leases, clas
     </Alert>
   );
 };
-
-function afterCloseOf(volume: GroupVolume | undefined): string | null {
-  if (volume?.reclaim === "delete") return "Its data is deleted once it closes.";
-
-  const retentionSeconds = parseReclamationWindowSeconds(volume?.retention);
-  if (!retentionSeconds) return null;
-
-  return `Its provider then keeps the data for ${formatDuration(intervalToDuration({ start: 0, end: retentionSeconds * 1000 }))}, so a new volume can adopt it.`;
-}

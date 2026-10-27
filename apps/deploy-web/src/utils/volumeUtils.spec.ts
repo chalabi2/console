@@ -2,7 +2,7 @@ import yaml from "js-yaml";
 import { describe, expect, it } from "vitest";
 
 import type { GroupVolume } from "./volumeUtils";
-import { deploymentVolumeOf, volumeAttachmentSdlOf, volumeClassOf, volumeOf } from "./volumeUtils";
+import { deploymentVolumeOf, volumeAfterCloseOf, volumeAttachmentSdlOf, volumeClassOf, volumeOf } from "./volumeUtils";
 
 import { buildRpcDeployment } from "@tests/seeders";
 
@@ -55,6 +55,25 @@ describe("volumeUtils", () => {
       { case: "is unknown", group: undefined }
     ])("reads no class from a group that $case", ({ group }) => {
       expect(volumeClassOf(group)).toBeUndefined();
+    });
+  });
+
+  describe(volumeAfterCloseOf.name, () => {
+    it("says a volume set to delete loses its data once it closes", () => {
+      expect(volumeAfterCloseOf({ reclaim: "delete", retention: "604800s" })).toBe("Its data is deleted once it closes.");
+    });
+
+    it("says how long the provider keeps a retained volume's data", () => {
+      expect(volumeAfterCloseOf({ reclaim: "retain", retention: "604800s" })).toBe(
+        "Its provider then keeps the data for 7 days, so a new volume can adopt it."
+      );
+    });
+
+    it.each([
+      { case: "no retention", volume: { reclaim: "retain" } },
+      { case: "no volume", volume: undefined }
+    ])("says nothing for $case", ({ volume }) => {
+      expect(volumeAfterCloseOf(volume)).toBeNull();
     });
   });
 

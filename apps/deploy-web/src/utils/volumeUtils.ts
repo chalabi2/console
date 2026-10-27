@@ -1,4 +1,8 @@
+import formatDuration from "date-fns/formatDuration";
+import intervalToDuration from "date-fns/intervalToDuration";
+
 import type { DeploymentGroup } from "@src/types/deployment";
+import { parseReclamationWindowSeconds } from "@src/utils/reclamationUtils";
 
 export type GroupVolume = NonNullable<DeploymentGroup["group_spec"]["volume"]>;
 
@@ -10,6 +14,16 @@ export function volumeOf(group: DeploymentGroup | undefined): GroupVolume | unde
 
 export function deploymentVolumeOf(groups: DeploymentGroup[] | undefined): GroupVolume | undefined {
   return groups?.map(volumeOf).find(volume => volume !== undefined);
+}
+
+/** What becomes of a volume's data once its close completes, as its owner set it when creating the volume. */
+export function volumeAfterCloseOf(volume: Pick<GroupVolume, "reclaim" | "retention"> | undefined): string | null {
+  if (volume?.reclaim === "delete") return "Its data is deleted once it closes.";
+
+  const retentionSeconds = parseReclamationWindowSeconds(volume?.retention);
+  if (!retentionSeconds) return null;
+
+  return `Its provider then keeps the data for ${formatDuration(intervalToDuration({ start: 0, end: retentionSeconds * 1000 }))}, so a new volume can adopt it.`;
 }
 
 export function volumeClassOf(group: DeploymentGroup | undefined): string | undefined {
