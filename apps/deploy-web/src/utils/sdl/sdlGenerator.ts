@@ -77,33 +77,7 @@ export const generateSdl = (formValues: SdlBuilderFormValuesType, options: Gener
   const secrets = resolveSdlSecrets(formValues, { sealSecrets: options.sealSecrets });
 
   formValues.placements.forEach(placement => {
-    sdl.profiles.placement[placement.name] = { pricing: {} };
-
-    if ((placement.signedBy?.anyOf?.length || 0) > 0) {
-      sdl.profiles.placement[placement.name].signedBy = {
-        anyOf: placement.signedBy?.anyOf.map(x => x.value)
-      };
-    }
-
-    if ((placement.signedBy?.allOf?.length || 0) > 0) {
-      sdl.profiles.placement[placement.name].signedBy = sdl.profiles.placement[placement.name].signedBy || {};
-      sdl.profiles.placement[placement.name].signedBy.allOf = placement.signedBy?.allOf.map(x => x.value);
-    }
-
-    if ((placement.attributes?.length || 0) > 0) {
-      sdl.profiles.placement[placement.name].attributes = placement.attributes?.reduce<Record<string, string>>(
-        (acc, curr) => ((acc[curr.key] = curr.value), acc),
-        {}
-      );
-    }
-
-    const sdlRegion = sdlRegionOf(placement.regions);
-    if (sdlRegion) {
-      sdl.profiles.placement[placement.name].attributes = {
-        ...(sdl.profiles.placement[placement.name].attributes || {}),
-        "location-region": sdlRegion.toLowerCase()
-      };
-    }
+    sdl.profiles.placement[placement.name] = placementProfileOf(placement);
   });
 
   formValues.services.forEach((service, serviceIndex) => {
@@ -318,6 +292,36 @@ export const generateSdl = (formValues: SdlBuilderFormValuesType, options: Gener
   return `---
 ${result}`;
 };
+
+/** A placement's profile with no pricing yet, which a volume's own deployment shares with the service mounting it so both seek the same providers. */
+export function placementProfileOf(placement: PlacementType): Record<string, any> {
+  const profile: Record<string, any> = { pricing: {} };
+
+  if ((placement.signedBy?.anyOf?.length || 0) > 0) {
+    profile.signedBy = {
+      anyOf: placement.signedBy?.anyOf.map(x => x.value)
+    };
+  }
+
+  if ((placement.signedBy?.allOf?.length || 0) > 0) {
+    profile.signedBy = profile.signedBy || {};
+    profile.signedBy.allOf = placement.signedBy?.allOf.map(x => x.value);
+  }
+
+  if ((placement.attributes?.length || 0) > 0) {
+    profile.attributes = placement.attributes?.reduce<Record<string, string>>((acc, curr) => ((acc[curr.key] = curr.value), acc), {});
+  }
+
+  const sdlRegion = sdlRegionOf(placement.regions);
+  if (sdlRegion) {
+    profile.attributes = {
+      ...(profile.attributes || {}),
+      "location-region": sdlRegion.toLowerCase()
+    };
+  }
+
+  return profile;
+}
 
 function externalVolumesOf(volumes: AttachedVolumeType[]): Record<string, { external: { owner?: string; dseq: number } }> {
   return Object.fromEntries(volumes.map(volume => [volume.name, { external: { ...(volume.owner && { owner: volume.owner }), dseq: Number(volume.dseq) } }]));

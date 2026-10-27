@@ -1,5 +1,5 @@
 import type { FC } from "react";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useController, useFieldArray, useFormContext, useWatch } from "react-hook-form";
 import {
   Button,
@@ -26,8 +26,9 @@ import { providerDisplayName } from "@src/utils/providerUtils";
 import { formatByteSize } from "@src/utils/unitUtils";
 import { dedicatedVolumesTooltip } from "../cardTooltips";
 import { SELECT_TRUNCATE_VALUE } from "../selectStyles";
+import { type CreatedVolume, CreateVolumeDialog } from "./CreateVolumeDialog";
 
-export const DEPENDENCIES = { CollapsibleCard, useOwnedVolumes, useProvidersByAddresses };
+export const DEPENDENCIES = { CollapsibleCard, CreateVolumeDialog, useOwnedVolumes, useProvidersByAddresses };
 
 const DEFAULT_MOUNT = "/data";
 
@@ -40,11 +41,14 @@ type Props = {
 /** A volume is offered while it holds a lease and nothing else mounts it, since a volume takes one attachment at a time. */
 export const DedicatedVolumesCard: FC<Props> = ({ serviceIndex, locked = false, dependencies: d = DEPENDENCIES }) => {
   const { control, getValues } = useFormContext<SdlBuilderFormValuesType>();
-  const { fields, append, remove } = useFieldArray({ control, name: `services.${serviceIndex}.volumes`, keyName: "key" });
+  const { fields, append, remove, update } = useFieldArray({ control, name: `services.${serviceIndex}.volumes`, keyName: "key" });
   const services = useWatch({ control, name: "services" });
+  const placements = useWatch({ control, name: "placements" });
   const { volumes: ownedVolumes } = d.useOwnedVolumes();
+  const [isCreatingVolume, setIsCreatingVolume] = useState(false);
 
   const isEnabled = fields.length > 0;
+  const placement = placements?.find(candidate => candidate.id === services?.[serviceIndex]?.placementId);
   const mountedHere = services?.[serviceIndex]?.volumes ?? [];
   const mountedByOtherServices = new Set(
     (services ?? []).flatMap((service, index) => (index === serviceIndex ? [] : (service.volumes ?? []).map(volume => volumeKeyOf(volume))))
@@ -57,6 +61,16 @@ export const DedicatedVolumesCard: FC<Props> = ({ serviceIndex, locked = false, 
     const mounts = new Set((getValues(`services.${serviceIndex}.volumes`) ?? []).map(volume => volume.mount));
     append({ name: "", dseq: "", mount: nextAvailableMount(mounts), isReadOnly: false }, { shouldFocus: false });
   }, [append, getValues, serviceIndex]);
+
+  const mountCreatedVolume = useCallback(
+    (volume: CreatedVolume) => {
+      const rows = getValues(`services.${serviceIndex}.volumes`) ?? [];
+      const emptyIndex = rows.findIndex(row => !row.dseq);
+      if (emptyIndex >= 0) update(emptyIndex, { ...rows[emptyIndex], ...volume });
+      else append({ ...volume, mount: nextAvailableMount(new Set(rows.map(row => row.mount))), isReadOnly: false }, { shouldFocus: false });
+    },
+    [append, getValues, serviceIndex, update]
+  );
 
   const toggleVolumes = useCallback(
     (checked: boolean) => {
@@ -109,6 +123,10 @@ export const DedicatedVolumesCard: FC<Props> = ({ serviceIndex, locked = false, 
             </p>
           )}
 
+          <Button type="button" variant="outline" size="sm" className="self-start" onClick={() => setIsCreatingVolume(true)} disabled={locked || !placement}>
+            Create a volume
+          </Button>
+
           <div className="flex justify-end">
             <button
               type="button"
@@ -123,6 +141,16 @@ export const DedicatedVolumesCard: FC<Props> = ({ serviceIndex, locked = false, 
         </>
       ) : (
         <p className="text-sm text-muted-foreground">No dedicated volume is mounted.</p>
+      )}
+
+      {isCreatingVolume && placement && (
+        <d.CreateVolumeDialog
+          open
+          onOpenChange={setIsCreatingVolume}
+          placement={placement}
+          takenNames={ownedVolumes.map(volume => volume.name)}
+          onCreated={mountCreatedVolume}
+        />
       )}
     </d.CollapsibleCard>
   );

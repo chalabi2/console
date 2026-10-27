@@ -1,0 +1,163 @@
+import yaml from "js-yaml";
+import { describe, expect, it, vi } from "vitest";
+import { mock } from "vitest-mock-extended";
+
+import type { ApiProviderList } from "@src/types/provider";
+import { PRICE_DISPLAY_PRECISION, udenomToDenom } from "@src/utils/mathHelpers";
+import { defaultPlacement } from "@src/utils/sdl/data";
+import { CreateVolumeDialog, DEPENDENCIES } from "./CreateVolumeDialog";
+import type { CreateVolumeStep, VolumeBid } from "./useCreateVolume";
+
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+
+const OWNER = "akash1owner";
+const DSEQ = "1793120236298";
+const BID: VolumeBid = { provider: "akash1provider", perBlockAmount: "1.5", denom: "uact" };
+
+describe(CreateVolumeDialog.name, () => {
+  it("creates the volume described, placed like the service that mounts it", async () => {
+    const { create } = setup({});
+
+    await userEvent.clear(screen.getByLabelText("Volume name"));
+    await userEvent.type(screen.getByLabelText("Volume name"), "app-data");
+    await userEvent.click(screen.getByRole("button", { name: "Create volume" }));
+
+    expect(create).toHaveBeenCalledWith({ name: "app-data", sdl: expect.any(String) });
+    expect(yaml.load(create.mock.calls[0][0].sdl)).toMatchObject({
+      volumes: { "app-data": { size: "10Gi", class: "beta3", lifecycle: { reclaim: "retain", retention: "168h" } } },
+      deployment: { "app-data": { dcloud: { profile: "app-data", count: 1 } } }
+    });
+  });
+
+  it("creates a volume whose data goes when it closes", async () => {
+    const { create } = setup({});
+
+    await userEvent.click(screen.getByRole("combobox", { name: "After it closes" }));
+    await userEvent.click(screen.getByRole("option", { name: "Delete its data" }));
+    await userEvent.click(screen.getByRole("button", { name: "Create volume" }));
+
+    expect(yaml.load(create.mock.calls[0][0].sdl)).toMatchObject({ volumes: { data: { lifecycle: { reclaim: "delete" } } } });
+  });
+
+  it.each([
+    { case: "is no DNS label", name: "Data_1", message: "Use lowercase letters, digits and dashes, starting and ending with a letter or digit." },
+    { case: "the wallet already gave a volume", name: "logs", message: "You already have a volume named logs." }
+  ])("refuses a name that $case", async ({ name, message }) => {
+    setup({ takenNames: ["logs"] });
+
+    await userEvent.clear(screen.getByLabelText("Volume name"));
+    await userEvent.type(screen.getByLabelText("Volume name"), name);
+
+    expect(screen.getByText(message)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create volume" })).toBeDisabled();
+  });
+
+  it("shows why the volume could not be created", () => {
+    setup({ step: { kind: "editing", error: "volume name in use" } });
+
+    expect(screen.getByText("volume name in use")).toBeInTheDocument();
+  });
+
+  it("holds every field while the volume's deployment is created", () => {
+    setup({ step: { kind: "creating" } });
+
+    expect(screen.getByLabelText("Volume name")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Creating…" })).toBeDisabled();
+  });
+
+  it("waits for providers to bid on the volume", () => {
+    setup({ step: { kind: "choosing", dseq: DSEQ } });
+
+    expect(screen.getByText("Waiting for providers to bid…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Lease volume" })).toBeDisabled();
+  });
+
+  it("offers each bidding provider with its region and price", () => {
+    setup({
+      step: { kind: "choosing", dseq: DSEQ },
+      bids: [BID, { ...BID, provider: "akash1unknown" }],
+      providers: [
+        mock<ApiProviderList>({
+          owner: "akash1provider",
+          organization: "Meridian Cloud",
+          hostUri: "https://p.example:8443",
+          locationRegion: "us-west",
+          attributes: []
+        })
+      ]
+    });
+
+    expect(screen.getByRole("radio", { name: /Meridian Cloud/ })).toBeInTheDocument();
+    expect(screen.getByText("us-west")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /akash1unknown/ })).toBeInTheDocument();
+    expect(screen.getByText("Region unknown")).toBeInTheDocument();
+    expect(screen.getAllByText(`price ${udenomToDenom("1.5", PRICE_DISPLAY_PRECISION)} uact`)).toHaveLength(2);
+  });
+
+  it("leases the volume from the provider chosen and mounts it in the service", async () => {
+    const { lease, onCreated, onOpenChange } = setup({ step: { kind: "choosing", dseq: DSEQ }, bids: [BID] });
+
+    await userEvent.click(screen.getByRole("radio", { name: /akash1provider/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Lease volume" }));
+
+    expect(lease).toHaveBeenCalledWith("akash1provider");
+    expect(onCreated).toHaveBeenCalledWith({ name: "data", owner: OWNER, dseq: DSEQ });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("stays open when the lease fails, showing why", async () => {
+    const { onCreated, onOpenChange } = setup({ step: { kind: "choosing", dseq: DSEQ, error: "provider gone" }, bids: [BID], leased: undefined });
+
+    await userEvent.click(screen.getByRole("radio", { name: /akash1provider/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Lease volume" }));
+
+    expect(screen.getByText("provider gone")).toBeInTheDocument();
+    expect(onCreated).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("abandons the volume's deployment when cancelled", async () => {
+    const { abandon, onOpenChange } = setup({ step: { kind: "choosing", dseq: DSEQ }, bids: [BID] });
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(abandon).toHaveBeenCalled();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("cannot be cancelled while the lease is sent", () => {
+    setup({ step: { kind: "leasing", dseq: DSEQ }, bids: [BID] });
+
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Leasing…" })).toBeDisabled();
+  });
+
+  function setup(input: { step?: CreateVolumeStep; bids?: VolumeBid[]; providers?: ApiProviderList[]; takenNames?: string[]; leased?: string | undefined }) {
+    const create = vi.fn(async (_volume: { name: string; sdl: string }) => undefined);
+    const lease = vi.fn(async (_provider: string) => ("leased" in input ? input.leased : DSEQ));
+    const abandon = vi.fn(async () => undefined);
+    const onCreated = vi.fn();
+    const onOpenChange = vi.fn();
+    const dependencies = {
+      ...DEPENDENCIES,
+      useCreateVolume: () => ({ step: input.step ?? { kind: "editing" as const }, bids: input.bids ?? [], create, lease, abandon }),
+      useWallet: () => mock<ReturnType<typeof DEPENDENCIES.useWallet>>({ address: OWNER }),
+      useProvidersByAddresses: () => mock<ReturnType<typeof DEPENDENCIES.useProvidersByAddresses>>({ data: input.providers ?? [] }),
+      PricePerTimeUnit: ({ perBlockValue, denom }: { perBlockValue: number; denom: string }) => <span>{`price ${perBlockValue} ${denom}`}</span>
+    };
+
+    render(
+      <CreateVolumeDialog
+        open
+        onOpenChange={onOpenChange}
+        placement={defaultPlacement({ name: "dcloud" })}
+        takenNames={input.takenNames ?? []}
+        onCreated={onCreated}
+        dependencies={dependencies as unknown as typeof DEPENDENCIES}
+      />
+    );
+
+    return { create, lease, abandon, onCreated, onOpenChange };
+  }
+});

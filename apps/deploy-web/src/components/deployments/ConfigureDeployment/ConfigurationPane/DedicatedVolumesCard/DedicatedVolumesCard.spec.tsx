@@ -1,4 +1,4 @@
-import type { PropsWithChildren } from "react";
+import type { ComponentProps, PropsWithChildren } from "react";
 import { FormProvider, useForm } from "react-hook-form";
 import { describe, expect, it, vi } from "vitest";
 import { mock } from "vitest-mock-extended";
@@ -137,11 +137,50 @@ describe(DedicatedVolumesCard.name, () => {
     expect(useProvidersByAddresses).toHaveBeenLastCalledWith([PROVIDER]);
   });
 
+  it("creates a volume placed like the service, refusing the names the wallet's volumes hold", async () => {
+    const { CreateVolumeDialog, getValues } = setup({ volumes: [{ ...MOUNTED, name: "", dseq: "" }], owned: [FREE, { ...FREE, name: "logs", dseq: "101" }] });
+
+    await userEvent.click(screen.getByRole("button", { name: "Create a volume" }));
+
+    expect(CreateVolumeDialog.mock.lastCall?.[0]).toEqual(
+      expect.objectContaining({ open: true, placement: getValues().placements[0], takenNames: ["data", "logs"] })
+    );
+  });
+
+  it("mounts a created volume in the row left without one", async () => {
+    const { getValues } = setup({ volumes: [{ ...MOUNTED, name: "", dseq: "" }] });
+
+    await userEvent.click(screen.getByRole("button", { name: "Create a volume" }));
+    await userEvent.click(screen.getByRole("button", { name: "created" }));
+
+    expect(getValues().services[0].volumes).toEqual([{ name: "app-data", owner: OWNER, dseq: "300", mount: "/data", isReadOnly: false }]);
+  });
+
+  it("mounts a created volume at the next free path when every row holds a volume", async () => {
+    const { getValues } = setup({ volumes: [MOUNTED] });
+
+    await userEvent.click(screen.getByRole("button", { name: "Create a volume" }));
+    await userEvent.click(screen.getByRole("button", { name: "created" }));
+
+    expect(getValues().services[0].volumes).toEqual([MOUNTED, { name: "app-data", owner: OWNER, dseq: "300", mount: "/data-1", isReadOnly: false }]);
+  });
+
+  it("closes the create dialog when it asks to", async () => {
+    const { CreateVolumeDialog } = setup({ volumes: [MOUNTED] });
+
+    await userEvent.click(screen.getByRole("button", { name: "Create a volume" }));
+    await userEvent.click(screen.getByRole("button", { name: "dismiss" }));
+
+    expect(screen.queryByRole("button", { name: "created" })).not.toBeInTheDocument();
+    expect(CreateVolumeDialog).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps every control read-only while locked", () => {
     setup({ volumes: [MOUNTED], locked: true });
 
     expect(screen.getByRole("switch", { name: "Mount a dedicated volume" })).toBeDisabled();
     expect(screen.getByLabelText("Volume mount")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Create a volume" })).toBeDisabled();
   });
 
   function setup(
@@ -161,6 +200,16 @@ describe(DedicatedVolumesCard.name, () => {
     const useProvidersByAddresses = vi.fn((_addresses: readonly string[]) =>
       mock<ReturnType<typeof DEPENDENCIES.useProvidersByAddresses>>({ data: input.providers ?? [] })
     );
+    const CreateVolumeDialog = vi.fn((props: ComponentProps<typeof DEPENDENCIES.CreateVolumeDialog>) => (
+      <>
+        <button type="button" onClick={() => props.onCreated({ name: "app-data", owner: OWNER, dseq: "300" })}>
+          created
+        </button>
+        <button type="button" onClick={() => props.onOpenChange(false)}>
+          dismiss
+        </button>
+      </>
+    ));
 
     let getValues: () => SdlBuilderFormValuesType = () => values;
     const Wrapper = ({ children }: PropsWithChildren) => {
@@ -174,11 +223,16 @@ describe(DedicatedVolumesCard.name, () => {
         <DedicatedVolumesCard
           serviceIndex={0}
           locked={input.locked}
-          dependencies={{ ...DEPENDENCIES, useOwnedVolumes, useProvidersByAddresses: useProvidersByAddresses as typeof DEPENDENCIES.useProvidersByAddresses }}
+          dependencies={{
+            ...DEPENDENCIES,
+            CreateVolumeDialog,
+            useOwnedVolumes,
+            useProvidersByAddresses: useProvidersByAddresses as typeof DEPENDENCIES.useProvidersByAddresses
+          }}
         />
       </Wrapper>
     );
 
-    return { getValues: () => getValues(), useProvidersByAddresses };
+    return { getValues: () => getValues(), useProvidersByAddresses, CreateVolumeDialog };
   }
 });
