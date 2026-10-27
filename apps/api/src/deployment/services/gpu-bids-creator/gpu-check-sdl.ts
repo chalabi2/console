@@ -18,18 +18,20 @@ const RESOURCES: Record<GpuCheckShape, { cpu: { units: number }; memory: { size:
 
 /** One placement per check, so each check becomes an order of its own that a provider bids on regardless of the others. */
 export function buildGpuCheckSdl(checks: GpuCheck[]): SDLInput {
-  const sdl: SDLInput = { version: "2.0", services: {}, profiles: { compute: {}, placement: {} }, deployment: {} };
+  const services: NonNullable<SDLInput["services"]> = {};
+  const compute: NonNullable<SDLInput["profiles"]["compute"]> = {};
+  const sdl: SDLInput = { version: "2.0", services, profiles: { compute, placement: {} }, deployment: {} };
 
   checks.forEach(({ model, shape }, index) => {
     const name = toPlacementName(index);
 
-    sdl.services[name] = {
+    services[name] = {
       image: "ubuntu:22.04",
       command: ["sh", "-c"],
       args: ["uptime; nvidia-smi; sleep infinity"],
       expose: [{ port: 8080, as: 80, to: [{ global: true }] }]
     };
-    sdl.profiles.compute[name] = {
+    compute[name] = {
       resources: { ...RESOURCES[shape], gpu: { units: 1, attributes: { vendor: { nvidia: [{ model }] } } } }
     };
     sdl.profiles.placement[name] = { pricing: { [name]: { denom: "uact", amount: 100_000 } } };

@@ -133,7 +133,7 @@ function unknownKindError(reference: SdlReferenceDeclaration): ValidationError {
 
 type ServiceLocation = { serviceName: string; serviceIndex: number };
 
-function envSlotsOf({ serviceName, serviceIndex }: ServiceLocation, service: SDLInput["services"][string]): SdlReferenceSlot[] {
+function envSlotsOf({ serviceName, serviceIndex }: ServiceLocation, service: NonNullable<SDLInput["services"]>[string]): SdlReferenceSlot[] {
   const env = service?.env;
 
   if (!Array.isArray(env)) return [];
@@ -158,7 +158,7 @@ function envSlotsOf({ serviceName, serviceIndex }: ServiceLocation, service: SDL
   });
 }
 
-function credentialSlotsOf({ serviceName, serviceIndex }: ServiceLocation, service: SDLInput["services"][string]): SdlReferenceSlot[] {
+function credentialSlotsOf({ serviceName, serviceIndex }: ServiceLocation, service: NonNullable<SDLInput["services"]>[string]): SdlReferenceSlot[] {
   const credentials = service?.credentials;
 
   if (!credentials || typeof credentials !== "object") return [];
@@ -282,7 +282,7 @@ export class SdlReferenceService {
     return visit({ kind: read.kind, name: read.name, serviceName: slot.serviceName, instancePath: slot.instancePath, reference: slot.value }, slot);
   }
 
-  #servicesOf(sdl: SDLInput): SDLInput["services"] {
+  #servicesOf(sdl: SDLInput): NonNullable<SDLInput["services"]> {
     const services = sdl?.services;
 
     return services && typeof services === "object" ? services : {};

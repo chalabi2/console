@@ -31,7 +31,7 @@
   },
   "dependencies": {
     "@akashnetwork/akash-api": "1.4.3",
-    "@akashnetwork/chain-sdk": "file:../../vendor/akashnetwork-chain-sdk-1.0.0-alpha.46.aep87.1.tgz",
+    "@akashnetwork/chain-sdk": "file:../../vendor/akashnetwork-chain-sdk-1.0.0-alpha.46.aep87.2.tgz",
     "@akashnetwork/database": "*",
     "@akashnetwork/env-loader": "*",
     "@akashnetwork/instrumentation": "*",

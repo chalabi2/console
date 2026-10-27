@@ -5,11 +5,11 @@ import { singleton } from "tsyringe";
 import type { PatchService } from "@src/deployment/http-schemas/deployment.schema";
 import { MAX_ECHOED_REFERENCE_LENGTH, ownValue, readEnvDeclaration } from "@src/deployment/services/sdl-reference/sdl-reference.service";
 
-type SdlServiceNode = SDLInput["services"][string];
+type SdlServiceNode = NonNullable<SDLInput["services"]>[string];
 type SdlExposeNode = NonNullable<SdlServiceNode["expose"]>[number];
 type SdlHttpOptionsNode = NonNullable<SdlExposeNode["http_options"]>;
 type SdlStorageNode = NonNullable<NonNullable<SdlServiceNode["params"]>["storage"]>[string];
-type SdlComputeResourcesNode = SDLInput["profiles"]["compute"][string]["resources"];
+type SdlComputeResourcesNode = NonNullable<SDLInput["profiles"]["compute"]>[string]["resources"];
 type SdlComputeStorageNode = Extract<SdlComputeResourcesNode["storage"], { size: string }>;
 type SdlPlacementNode = SDLInput["deployment"][string][string];
 type PatchResources = NonNullable<PatchService["resources"]>;
@@ -151,7 +151,7 @@ function writableNodesOf(service: SdlServiceNode): object[] {
 }
 
 /** A node reachable twice is one a write would change in a place the request did not name, whether the second reacher is another service or another part of the same one. */
-function sharedNodesOf(services: SDLInput["services"]): Set<object> {
+function sharedNodesOf(services: NonNullable<SDLInput["services"]>): Set<object> {
   const seen = new Set<object>();
   const shared = new Set<object>();
 
@@ -265,7 +265,7 @@ export class SdlPatchService {
     }
   }
 
-  #assertProfileNotAnchored(compute: SDLInput["profiles"]["compute"], profileName: string, resources: SdlComputeResourcesNode): void {
+  #assertProfileNotAnchored(compute: NonNullable<SDLInput["profiles"]["compute"]>, profileName: string, resources: SdlComputeResourcesNode): void {
     const shared = nodesReachedTwice(Object.values(compute).map(profile => resourceNodesOf(profile?.resources)));
 
     if (resourceNodesOf(resources).some(node => shared.has(node))) {
@@ -512,7 +512,7 @@ export class SdlPatchService {
     );
   }
 
-  #servicesOf(document: SDLInput): SDLInput["services"] {
+  #servicesOf(document: SDLInput): NonNullable<SDLInput["services"]> {
     const services = document?.services;
 
     return services && typeof services === "object" ? services : {};

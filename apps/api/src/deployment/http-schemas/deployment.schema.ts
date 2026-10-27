@@ -322,7 +322,7 @@ export const UpdateDeploymentRequestSchema = z.object({
   })
 });
 
-type SdlExposeNode = NonNullable<SDLInput["services"][string]["expose"]>[number];
+type SdlExposeNode = NonNullable<NonNullable<SDLInput["services"]>[string]["expose"]>[number];
 type SdlNextCase = NonNullable<NonNullable<SdlExposeNode["http_options"]>["next_cases"]>[number];
 
 /** Kubernetes' own env var name grammar, which the SDL accepts and a stored `NAME=value` entry can round-trip. */
