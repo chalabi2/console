@@ -24,6 +24,8 @@ import { UserRepository } from "@src/user/repositories";
 
 export const FAIR_USE_POLICY_REQUIRED_ERROR_CODE = "fair_use_policy_required";
 
+export const TRIAL_LEASE_RESIZE_REFUSAL = "Resizing a deployment is not available on the free trial: Add funds to resize it";
+
 @singleton()
 export class TrialValidationService {
   private readonly logger: ReturnType<CreateLogger>;
@@ -172,7 +174,7 @@ export class TrialValidationService {
 
     this.logger.info({ event: "TRIAL_LEASE_RESIZE_REJECTED", owner: userWallet.address, userId: userWallet.userId });
 
-    assert(false, 402, "Resizing a deployment is not available on the free trial: Add funds to resize it");
+    assert(false, 402, TRIAL_LEASE_RESIZE_REFUSAL);
   }
 
   /** The gate is decided for the wallet's own user, so a create sent from a background job is judged as its request was rather than as the job's user. */

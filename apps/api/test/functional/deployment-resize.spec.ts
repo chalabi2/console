@@ -141,6 +141,16 @@ describe("Resizing a deployment's lease in place", () => {
       ]);
     });
 
+    it("refuses a resize from a wallet on the free trial, recording nothing", async () => {
+      const { apiKey, user, sdl } = await setup({ resizeOnChain: true, isTrialing: true });
+
+      const response = await patch(apiKey, { services: { web: { resources: { cpu: 2 } } } });
+
+      expect(response.status).toBe(402);
+      expect(await response.json()).toMatchObject({ message: "Resizing a deployment is not available on the free trial: Add funds to resize it" });
+      expect((await deploymentSettingRepository.findOneBy({ userId: user.id, dseq: DSEQ }))!.sdl).toBe(sdl);
+    });
+
     it("refuses a change of resources as one that needs a new deployment while the network has resizing turned off", async () => {
       const { apiKey, user, sdl } = await setup({ resizeOnChain: false });
 
@@ -279,12 +289,12 @@ describe("Resizing a deployment's lease in place", () => {
     await createDeployment({ owner: address, dseq: DSEQ });
   }
 
-  async function setup(input: { resizeOnChain: boolean; pendingResize?: boolean; chainSdl?: string }) {
+  async function setup(input: { resizeOnChain: boolean; pendingResize?: boolean; chainSdl?: string; isTrialing?: boolean }) {
     const dbUser = await userRepository.create({ userId: faker.string.uuid() });
     const apiKey = faker.string.alphanumeric(24);
     const user = createUser({ id: dbUser.id, userId: dbUser.userId ?? undefined });
     const address = createAkashAddress();
-    const wallets = [createUserWallet({ userId: dbUser.id, address })];
+    const wallets = [createUserWallet({ userId: dbUser.id, address, isTrialing: input.isTrialing ?? false })];
     const apiKeys: Record<string, ReturnType<typeof createApiKey>> = { [apiKey]: createApiKey({ userId: dbUser.id }) };
 
     vi.spyOn(userRepository, "findById").mockImplementation(async id =>

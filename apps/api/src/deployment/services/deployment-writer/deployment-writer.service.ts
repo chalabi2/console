@@ -21,6 +21,7 @@ import {
 } from "@src/billing/services/deployment-deposit-ledger/deployment-deposit-ledger.service";
 import { ManagedSignerService } from "@src/billing/services/managed-signer/managed-signer.service";
 import { RpcMessageService } from "@src/billing/services/rpc-message-service/rpc-message.service";
+import { TRIAL_LEASE_RESIZE_REFUSAL } from "@src/billing/services/trial-validation/trial-validation.service";
 import { WalletReaderService } from "@src/billing/services/wallet-reader/wallet-reader.service";
 import { type CreateLogger, JOB_NAME, JobQueueService, LOGGER_FACTORY, TxService } from "@src/core";
 import { SDL_MAX_LENGTH } from "@src/deployment/config/sdl.config";
@@ -1059,6 +1060,8 @@ export class DeploymentWriterService {
       groups,
       mayResize: asksToResize(input.services ?? {}) || !assignsAnyServiceField(input.services)
     });
+
+    if (resize && wallet.isTrialing) throw createError(402, TRIAL_LEASE_RESIZE_REFUSAL);
 
     const recordedVersion = Buffer.from(manifestVersion).toString("base64");
     const sealedSecrets = await this.sdlSecretsService.sealForStorage({ userId: filedUserId, teamId: teamIdOf(wallet), dseq, secrets: merged });

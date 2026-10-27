@@ -3543,6 +3543,18 @@ describe(DeploymentWriterService.name, () => {
         expect(providerService.sendManifest).not.toHaveBeenCalled();
       });
 
+      it("refuses a resize from a wallet on the free trial with 402, saving nothing", async () => {
+        const { service, ability, leaseResizeService, deploymentSettingRepository, sdlSecretsService } = setup({ isTrialing: true });
+        leaseResizeService.planFor.mockResolvedValue({ gseq: 1, groupName: "dcloud", resources: [] });
+
+        await expect(service.patchByUserIdAndDseq("user-1", "1234", { services: { web: { resources: { cpu: 2 } } } }, ability)).rejects.toMatchObject({
+          status: 402,
+          message: "Resizing a deployment is not available on the free trial: Add funds to resize it"
+        });
+        expect(sdlSecretsService.sealForStorage).not.toHaveBeenCalled();
+        expect(deploymentSettingRepository.replaceDefinitionIfVersionMatches).not.toHaveBeenCalled();
+      });
+
       it("leaves a patch that resizes a lease to the background, answering with its activity", async () => {
         const { service, ability, leaseResizeService, signerService, providerService, transactionLog } = setup();
         leaseResizeService.planFor.mockResolvedValue({ gseq: 1, groupName: "dcloud", resources: [] });

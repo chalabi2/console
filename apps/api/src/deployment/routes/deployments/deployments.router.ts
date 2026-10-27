@@ -504,6 +504,15 @@ const patchRoute = createRoute({
         }
       }
     },
+    402: {
+      description:
+        "The patch changes `resources` or `count` while the deployment's wallet is on the free trial, which resizes no lease; nothing is recorded. Add funds and send it again",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
     403: {
       description: `The \`sealedSecrets\` value was sealed for a different user, or bound to a different SDL than the one the console stores for this deployment, as a seal made before an earlier patch of it was recorded is. ${PROJECT_FORBIDDEN_DESCRIPTION}`,
       content: {
