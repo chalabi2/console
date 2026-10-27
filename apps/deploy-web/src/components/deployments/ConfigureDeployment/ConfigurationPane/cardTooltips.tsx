@@ -58,6 +58,14 @@ export const ramStorageTooltip = (
   </>
 );
 
+export const dedicatedVolumesTooltip = (
+  <>
+    A volume leased as its own deployment, so its data outlives this deployment and can be mounted again by a redeploy or another deployment.
+    <br />
+    <br />A service runs on the provider that holds the volumes it mounts.
+  </>
+);
+
 export const persistentStorageTooltip = (
   <>
     The amount of persistent storage required for this workload.

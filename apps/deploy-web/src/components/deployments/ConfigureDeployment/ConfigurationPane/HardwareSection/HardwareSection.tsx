@@ -4,10 +4,12 @@ import { CollapsibleCard } from "@akashnetwork/ui/components";
 import { CpuIcon, PackageOpenIcon } from "lucide-react";
 
 import { AddCreditsSheet } from "@src/components/auth/AddCreditsSheet/AddCreditsSheet";
+import { useFlag } from "@src/hooks/useFlag";
 import { isTrialBlockedGpuSelection, isTrialGpuRestrictionActive } from "@src/utils/deploymentData/v1beta3";
 import { useRevalidateUniqueness } from "../../DeploymentPane/useRevalidateUniqueness/useRevalidateUniqueness";
 import { computeResourcesTooltip, presetsTooltip } from "../cardTooltips";
 import { ComputeResourcesCard } from "../ComputeResourcesCard/ComputeResourcesCard";
+import { DedicatedVolumesCard } from "../DedicatedVolumesCard/DedicatedVolumesCard";
 import { GpuCard } from "../GpuCard/GpuCard";
 import { PersistentStorageCard } from "../PersistentStorageCard/PersistentStorageCard";
 import { PresetsCard } from "../PresetsCard/PresetsCard";
@@ -34,11 +36,13 @@ export const DEPENDENCIES = {
   ComputeResourcesCard,
   RamStorageCard,
   PersistentStorageCard,
+  DedicatedVolumesCard,
   SecurityCard,
   TrialResourceLimitHint,
   AddCreditsSheet,
   useRevalidateUniqueness,
-  useTrialGate
+  useTrialGate,
+  useFlag
 };
 
 type Props = {
@@ -64,6 +68,7 @@ type Props = {
 export const HardwareSection: FC<Props> = ({ serviceIndex, locked = false, showsDeploymentLimit = true, dependencies: d = DEPENDENCIES }) => {
   d.useRevalidateUniqueness(`services.${serviceIndex}.profile.storage`, storageUniquenessKey);
   const { isRestricted } = d.useTrialGate();
+  const canMountVolumes = d.useFlag("dedicated_volumes");
   const [isUnlockOpen, setIsUnlockOpen] = useState(false);
 
   const openUnlock = () => setIsUnlockOpen(true);
@@ -107,6 +112,8 @@ export const HardwareSection: FC<Props> = ({ serviceIndex, locked = false, shows
         <d.RamStorageCard serviceIndex={serviceIndex} locked={locked} />
 
         <d.PersistentStorageCard serviceIndex={serviceIndex} locked={locked} />
+
+        {canMountVolumes && <d.DedicatedVolumesCard serviceIndex={serviceIndex} locked={locked} />}
       </div>
 
       <d.AddCreditsSheet open={isUnlockOpen} onOpenChange={setIsUnlockOpen} onDone={closeUnlock} />

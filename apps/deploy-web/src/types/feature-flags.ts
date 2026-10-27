@@ -15,4 +15,5 @@ export type FeatureFlag =
   | "ui_command_menu"
   | "organizations"
   | "invoices"
-  | "lease_resize";
+  | "lease_resize"
+  | "dedicated_volumes";

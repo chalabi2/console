@@ -212,6 +212,23 @@ describe(HardwareSection.name, () => {
     expect(AddCreditsSheet).toHaveBeenLastCalledWith(expect.objectContaining({ open: true }), expect.anything());
   });
 
+  it("offers dedicated volumes for the service while the volumes flag is on", () => {
+    const DedicatedVolumesCard = vi.fn(() => null);
+    const useFlag = vi.fn((flag: string) => flag === "dedicated_volumes");
+
+    setup({ serviceIndex: 1, locked: true, dependencies: { DedicatedVolumesCard, useFlag } });
+
+    expect(DedicatedVolumesCard).toHaveBeenCalledWith(expect.objectContaining({ serviceIndex: 1, locked: true }), expect.anything());
+  });
+
+  it("leaves dedicated volumes out while the volumes flag is off", () => {
+    const DedicatedVolumesCard = vi.fn(() => null);
+
+    setup({ dependencies: { DedicatedVolumesCard, useFlag: () => false } });
+
+    expect(DedicatedVolumesCard).not.toHaveBeenCalled();
+  });
+
   function setup(input: { serviceIndex?: number; locked?: boolean; showsDeploymentLimit?: boolean; dependencies?: Partial<typeof DEPENDENCIES> }) {
     const dependencies = MockComponents(DEPENDENCIES, {
       useTrialGate: () => ({ isRestricted: false, isWalletReady: false }),
