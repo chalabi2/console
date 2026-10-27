@@ -559,6 +559,16 @@ describe(LeaseService.name, () => {
       });
     });
 
+    it("creates the lease of a deployment that runs no service, as a volume's own does, without sending a manifest", async () => {
+      const { service, providerService, signerService, wallet } = setup({ derived: '[{"name":"global","services":null}]' });
+      const lease = { dseq: "100", gseq: 1, oseq: 1, provider: createAkashAddress() };
+
+      await service.createLeasesAndSendManifest({ leases: [lease], manifest: MANIFEST, userId: wallet.userId });
+
+      expect(signerService.executeDecodedTxByUserWallet).toHaveBeenCalledTimes(1);
+      expect(providerService.sendManifest).not.toHaveBeenCalled();
+    });
+
     it("sends the manifest it derived from the stored definition, not the one the request carried", async () => {
       const { service, providerService, wallet } = setup({ derived: DERIVED_MANIFEST });
       const lease = { dseq: "100", gseq: 1, oseq: 1, provider: createAkashAddress() };

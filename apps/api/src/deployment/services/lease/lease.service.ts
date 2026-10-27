@@ -20,6 +20,7 @@ import { isAccessRevoked } from "@src/deployment/services/member-deployment-acce
 import { ReconcileLeaseCreate, reconcileLeaseCreateOptionsFor } from "@src/deployment/services/reconcile-lease-create/reconcile-lease-create.job";
 import { createdLeaseActivityOf, failedLeaseActivityOf, pendingLeaseActivityOf } from "@src/deployment/utils/lease-activity/lease-activity";
 import { isLeaseOn, isSamePlacementSet, type LeasePlacement } from "@src/deployment/utils/lease-placement/lease-placement";
+import { runsNoService } from "@src/deployment/utils/sdl-manifest/sdl-manifest";
 import {
   type InvalidManifestError,
   isManifestInvalid,
@@ -241,7 +242,9 @@ export class LeaseService {
 
   async #sendManifests(wallet: { id: number }, leases: Leases, manifests: Map<string, string>): Promise<void> {
     for (const lease of leases) {
-      await this.#sendManifest(lease, manifests.get(lease.dseq)!, wallet);
+      const manifest = manifests.get(lease.dseq)!;
+
+      if (!runsNoService(manifest)) await this.#sendManifest(lease, manifest, wallet);
     }
   }
 

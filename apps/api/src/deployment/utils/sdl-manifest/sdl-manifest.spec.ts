@@ -2,7 +2,7 @@ import type { GenerateManifestResult, Manifest, SDLInput } from "@akashnetwork/c
 import { describe, expect, it, vi } from "vitest";
 import { mock } from "vitest-mock-extended";
 
-import { findMissingGlobalExposure, generateManifestReportingBuildFailures } from "./sdl-manifest";
+import { findMissingGlobalExposure, generateManifestReportingBuildFailures, runsNoService } from "./sdl-manifest";
 
 type BuiltManifest = Extract<GenerateManifestResult, { ok: true }>["value"];
 type ManifestGroup = Manifest[number];
@@ -108,6 +108,10 @@ describe(findMissingGlobalExposure.name, () => {
     expect(findMissingGlobalExposure(manifest)).toBeUndefined();
   });
 
+  it("finds nothing missing in a manifest that runs no service, as a volume's own deployment does", () => {
+    expect(findMissingGlobalExposure([groupExposing()])).toBeUndefined();
+  });
+
   it("reports a manifest whose every port is exposed only inside the deployment", () => {
     const manifest = [groupExposing([false]), groupExposing([false, false], [])];
 
@@ -125,4 +129,23 @@ describe(findMissingGlobalExposure.name, () => {
       services: services.map(globals => mock<ManifestService>({ expose: globals.map(global => mock<ManifestExpose>({ global })) }))
     });
   }
+});
+
+describe(runsNoService.name, () => {
+  it.each([
+    { case: "a group whose services the manifest writes as null", manifest: '[{"name":"global","services":null}]' },
+    { case: "groups without a single service", manifest: '[{"name":"a","services":[]},{"name":"b"}]' }
+  ])("tells a manifest of $case runs no service", ({ manifest }) => {
+    expect(runsNoService(manifest)).toBe(true);
+  });
+
+  it.each([
+    { case: "a group running a service", manifest: '[{"name":"global","services":[{"name":"web"}]}]' },
+    { case: "a group running a service next to one running none", manifest: '[{"name":"a","services":null},{"name":"b","services":[{"name":"web"}]}]' },
+    { case: "no group at all", manifest: "[]" },
+    { case: "a document that is not a list of groups", manifest: '{"version":"v2","groups":[]}' },
+    { case: "text that is not JSON", manifest: "not json" }
+  ])("does not tell a manifest of $case runs no service", ({ manifest }) => {
+    expect(runsNoService(manifest)).toBe(false);
+  });
 });

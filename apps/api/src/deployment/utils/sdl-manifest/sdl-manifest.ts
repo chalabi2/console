@@ -4,11 +4,11 @@ import { generateManifest } from "@akashnetwork/chain-sdk";
 /** chain-sdk checks sizes only while building the manifest and throws this instead of returning a validation error. */
 const INVALID_SIZE_MESSAGE_PREFIX = "Invalid size string: ";
 
-/** Providers refuse a manifest that exposes no service globally, but only after the lease it was sent for is paid for, while the chain accepts the deployment. */
+/** Providers refuse a manifest that exposes no service globally, but only after the lease it was sent for is paid for, while the chain accepts the deployment; a volume's own deployment runs no service, so it has nothing to expose. */
 export function findMissingGlobalExposure(manifest: Manifest): ValidationError | undefined {
-  const exposesGlobally = manifest.some(group => group.services.some(service => service.expose.some(expose => expose.global)));
+  const services = manifest.flatMap(group => group.services);
 
-  if (exposesGlobally) return undefined;
+  if (services.length === 0 || services.some(service => service.expose.some(expose => expose.global))) return undefined;
 
   return {
     schemaPath: "",
@@ -17,6 +17,21 @@ export function findMissingGlobalExposure(manifest: Manifest): ValidationError |
     params: {},
     message: "at least one service must expose a port with `global: true`, because providers refuse a deployment that exposes none"
   };
+}
+
+/** A provider sent a manifest for a volume's lease tries to deploy a workload that has no service, so a deployment running none is sent no manifest. */
+export function runsNoService(manifestJson: string): boolean {
+  const groups: Array<{ services?: unknown[] | null }> | undefined = parsedOrUndefined(manifestJson);
+
+  return Array.isArray(groups) && groups.length > 0 && groups.every(group => !group?.services?.length);
+}
+
+function parsedOrUndefined<T>(json: string): T | undefined {
+  try {
+    return JSON.parse(json);
+  } catch {
+    return undefined;
+  }
 }
 
 /** The generator reads nothing but the document, so whatever it throws is something about the document that only the caller can change. */
