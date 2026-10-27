@@ -137,6 +137,8 @@ interface DeploymentGroup_v2 {
         amount: string;
       };
     }>;
+    /** Present on a volume's own group (AEP-87), which leases storage and runs no workload. */
+    volume?: { vid: string } | null;
   };
   created_at: string;
 }
@@ -211,6 +213,8 @@ interface DeploymentGroup_v3 {
         amount: string;
       };
     }>;
+    /** Present on a volume's own group (AEP-87), which leases storage and runs no workload. */
+    volume?: { vid: string } | null;
   };
   created_at: string;
 }

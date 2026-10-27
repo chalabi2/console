@@ -756,6 +756,31 @@ describe("useLeaseQuery", () => {
       expect(result.current.data).toEqual(mockLeaseStatus);
     });
 
+    it("reports no service for a volume's own lease without asking its provider", async () => {
+      const providerProxy = mock<ProviderProxyService>();
+      const volumeLease: LeaseDto = { ...mockLease, group: { ...mockGroup, group_spec: { ...mockGroup.group_spec, volume: { vid: "data" } } } };
+      const { result } = setupLeaseStatus({ lease: volumeLease, services: { providerProxy: () => providerProxy } });
+
+      await vi.waitFor(() => {
+        expect(result.current.isSuccess).toBe(true);
+      });
+
+      expect(result.current.data).toEqual({ forwarded_ports: {}, ips: {}, services: {} });
+      expect(providerProxy.request).not.toHaveBeenCalled();
+    });
+
+    it("asks the provider for the status of a lease whose group is unknown", async () => {
+      const providerProxy = mock<ProviderProxyService>({ request: vi.fn().mockResolvedValue({ data: mockLeaseStatus }) });
+      const { result } = setupLeaseStatus({ lease: { ...mockLease, group: undefined }, services: { providerProxy: () => providerProxy } });
+
+      await vi.waitFor(() => {
+        expect(result.current.isSuccess).toBe(true);
+      });
+
+      expect(result.current.data).toEqual(mockLeaseStatus);
+      expect(providerProxy.request).toHaveBeenCalledWith(expect.stringContaining("/lease/123/1/1/status"), expect.anything());
+    });
+
     it("filters the attestation sidecar out of the returned services", async () => {
       const provider = buildProvider();
       const statusWithSidecar = {

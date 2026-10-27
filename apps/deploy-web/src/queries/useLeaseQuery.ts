@@ -22,6 +22,7 @@ import { ApiUrlService, loadWithPagination } from "@src/utils/apiUtils";
 import { omitAttestationSidecar } from "@src/utils/confidentialCompute";
 import { leaseToDto } from "@src/utils/deploymentDetailUtils";
 import { isLeaseLive } from "@src/utils/leaseUtils";
+import { volumeOf } from "@src/utils/volumeUtils";
 import { QueryKeys } from "./queryKeys";
 
 /**
@@ -230,6 +231,9 @@ type LeaseStatusRequest = (
   options: { method: "GET"; credentials: { type: "jwt"; value: string } }
 ) => Promise<{ data: LeaseStatusResponse | null }>;
 
+/** A volume's own lease runs no workload, so its provider keeps no status for it and answers a poll with a 404; it reports no service instead. */
+const VOLUME_LEASE_STATUS: LeaseStatusDto = { forwarded_ports: {}, ips: {}, services: {} };
+
 async function fetchLeaseStatus(input: {
   lease?: LeaseDto | null;
   provider?: ApiProviderList | null;
@@ -239,6 +243,7 @@ async function fetchLeaseStatus(input: {
 }): Promise<LeaseStatusDto | null> {
   const { lease, provider, request } = input;
   if (!lease || !provider || !isLeaseLive(lease)) return null;
+  if (volumeOf(lease.group)) return VOLUME_LEASE_STATUS;
 
   const access = { provider: provider.owner, dseqs: input.dseqs ?? [lease.dseq], scope: LEASE_STATUS_SCOPE };
   const ensureToken = (options?: { force?: boolean }) => input.ensureToken({ ...options, access });
