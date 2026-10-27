@@ -436,6 +436,19 @@ describe(DeploymentDetailHeader.name, () => {
     });
   }
 
+  it("names the volume of a volume's own deployment in place of a service count", () => {
+    setup({ groups: [buildVolumeGroup("data")] });
+
+    expect(screen.getByText("VOLUME").parentElement).toHaveTextContent("data");
+    expect(screen.queryByText("TOTAL SERVICES")).not.toBeInTheDocument();
+  });
+
+  function buildVolumeGroup(vid: string) {
+    return mock<DeploymentGroup>({
+      group_spec: { name: "global", volume: { vid }, resources: [] as DeploymentGroup["group_spec"]["resources"] }
+    } as Partial<DeploymentGroup>);
+  }
+
   function buildGroupRequestingGpu(model: string) {
     return mock<DeploymentGroup>({
       group_spec: { resources: [{ resource: { gpu: { attributes: [{ key: `vendor/nvidia/model/${model}`, value: "true" }] } } }] }

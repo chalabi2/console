@@ -30,6 +30,7 @@ import { isLeaseLive } from "@src/utils/leaseUtils";
 import { roundDecimal } from "@src/utils/mathHelpers";
 import { getRuntimeLimitCountdown } from "@src/utils/runtimeLimitUtils";
 import { formatByteSize } from "@src/utils/unitUtils";
+import { deploymentVolumeOf } from "@src/utils/volumeUtils";
 import { GpuLabel } from "./DeploymentPlacements/GpuLabel";
 import {
   countPlacementServices,
@@ -122,6 +123,7 @@ export const DeploymentDetailHeader: FC<DeploymentDetailHeaderProps> = ({
   );
 
   const name = definition.name || `Deployment #${deployment.dseq}`;
+  const volume = deploymentVolumeOf(deployment.groups);
 
   return (
     <div className="flex flex-col gap-6 py-6 lg:flex-row lg:items-start lg:justify-between">
@@ -153,9 +155,13 @@ export const DeploymentDetailHeader: FC<DeploymentDetailHeaderProps> = ({
       <Card className="w-full shrink-0 lg:w-auto">
         <CardContent className="flex flex-col gap-5 p-6">
           <div className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-4 sm:gap-x-10">
-            <SummaryItem label="TOTAL SERVICES">
-              {definition.source === "resolving" ? <Skeleton className="h-5 w-6" data-testid="services-count-skeleton" /> : servicesCount}
-            </SummaryItem>
+            {volume ? (
+              <SummaryItem label="VOLUME">{volume.vid}</SummaryItem>
+            ) : (
+              <SummaryItem label="TOTAL SERVICES">
+                {definition.source === "resolving" ? <Skeleton className="h-5 w-6" data-testid="services-count-skeleton" /> : servicesCount}
+              </SummaryItem>
+            )}
             <SummaryItem
               label={
                 <span className="inline-flex items-center gap-1">

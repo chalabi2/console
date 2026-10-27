@@ -4,7 +4,7 @@ import { mock } from "vitest-mock-extended";
 
 import type { DeploymentDefinition } from "@src/hooks/useDeploymentDefinition/useDeploymentDefinition";
 import type { Activity } from "@src/queries/useLatestActivitiesQuery";
-import type { DeploymentDto, DetectedLeaseGpus, LeaseDto, LeaseGpusByLease, OfferedLeaseGpus } from "@src/types/deployment";
+import type { DeploymentDto, DeploymentGroup, DetectedLeaseGpus, LeaseDto, LeaseGpusByLease, OfferedLeaseGpus } from "@src/types/deployment";
 import type { DeploymentLocation } from "@src/types/project";
 import type { ApiProviderList } from "@src/types/provider";
 import type { DeploymentGettingStartedProps } from "./DeploymentGettingStarted/DeploymentGettingStarted";
@@ -411,6 +411,12 @@ describe("DeploymentDetail", () => {
     expect(screen.getAllByRole("tab").map(tab => tab.textContent)).toEqual(["Details", "Update", "Logs", "Events", "Shell", "Settings"]);
   });
 
+  it("leaves out the logs, events and shell of a volume, which runs no workload", () => {
+    setup({ deployment: mock<DeploymentDto>({ dseq: "1786440078202", state: "active", groups: [buildVolumeGroup()] }) });
+
+    expect(screen.getAllByRole("tab").map(tab => tab.textContent)).toEqual(["Details", "Update", "Settings"]);
+  });
+
   describe("when the caller only views the deployment's project", () => {
     it("leaves out the tabs that update the deployment or open a shell in it", () => {
       const { useCanManageDeployment } = setup({ canManage: false });
@@ -648,6 +654,10 @@ describe("DeploymentDetail", () => {
 
   function isRenderedBefore(earlier: Element, later: Element) {
     return Boolean(earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING);
+  }
+
+  function buildVolumeGroup() {
+    return mock<DeploymentGroup>({ state: "open", group_spec: { name: "global", volume: { vid: "data" } } } as Partial<DeploymentGroup>);
   }
 
   function setup(input?: {

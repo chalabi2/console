@@ -4,6 +4,7 @@ import { useMemo } from "react";
 
 import type { LeaseDto } from "@src/types/deployment";
 import type { ApiProviderList } from "@src/types/provider";
+import { volumeOf } from "@src/utils/volumeUtils";
 import { DeploymentTabHeader } from "../DeploymentTabHeader";
 import { PlacementCard } from "./PlacementCard";
 import { countPlacementServices, getPlacementName, parseManifestServices, parseServicesByPlacement } from "./placementModel";
@@ -37,6 +38,8 @@ export const DeploymentPlacements: FC<DeploymentPlacementsProps> = ({
   }
 
   const serviceCount = countPlacementServices(leases, servicesByPlacement, manifestServices);
+  const volumeCount = leases.filter(lease => volumeOf(lease.group)).length;
+  const contentSummary = volumeCount > 0 ? `${volumeCount} ${pluralize("volume", volumeCount)}` : `${serviceCount} ${pluralize("service", serviceCount)}`;
 
   return (
     <div>
@@ -44,7 +47,7 @@ export const DeploymentPlacements: FC<DeploymentPlacementsProps> = ({
         title="Placements"
         actions={
           <span className="text-sm text-muted-foreground">
-            {leases.length} {pluralize("placement", leases.length)} · {serviceCount} {pluralize("service", serviceCount)}
+            {leases.length} {pluralize("placement", leases.length)} · {contentSummary}
           </span>
         }
       />

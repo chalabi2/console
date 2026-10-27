@@ -1,7 +1,8 @@
+import yaml from "js-yaml";
 import { describe, expect, it } from "vitest";
 
 import type { GroupVolume } from "./volumeUtils";
-import { volumeOf } from "./volumeUtils";
+import { deploymentVolumeOf, volumeAttachmentSdlOf, volumeClassOf, volumeOf } from "./volumeUtils";
 
 import { buildRpcDeployment } from "@tests/seeders";
 
@@ -20,8 +21,58 @@ describe("volumeUtils", () => {
     });
   });
 
-  function buildGroup(input: { volume?: GroupVolume | null }) {
+  describe(deploymentVolumeOf.name, () => {
+    it("reads the volume of a volume's own deployment", () => {
+      expect(deploymentVolumeOf([buildGroup({ volume: { vid: "data" } })])).toEqual({ vid: "data" });
+    });
+
+    it.each([
+      { case: "runs workloads", groups: [buildGroup({ volume: null }), buildGroup({})] },
+      { case: "is not loaded yet", groups: undefined }
+    ])("finds no volume in a deployment that $case", ({ groups }) => {
+      expect(deploymentVolumeOf(groups)).toBeUndefined();
+    });
+  });
+
+  describe(volumeClassOf.name, () => {
+    it("reads the storage class backing a volume", () => {
+      const group = buildGroup({
+        storages: [
+          [
+            { key: "persistent", value: "true" },
+            { key: "class", value: "beta3" }
+          ]
+        ]
+      });
+
+      expect(volumeClassOf(group)).toBe("beta3");
+    });
+
+    it.each([
+      { case: "declares no class", group: buildGroup({ storages: [[{ key: "persistent", value: "true" }]] }) },
+      { case: "leases no storage", group: buildGroup({ storages: [] }) },
+      { case: "requests no resources", group: buildGroup({ requestsNothing: true }) },
+      { case: "is unknown", group: undefined }
+    ])("reads no class from a group that $case", ({ group }) => {
+      expect(volumeClassOf(group)).toBeUndefined();
+    });
+  });
+
+  it("writes the sdl another deployment attaches a volume with, mounting it in one of its services", () => {
+    const sdl = volumeAttachmentSdlOf({ vid: "data", owner: "akash1owner", dseq: "1793083597928" });
+
+    expect(yaml.load(sdl)).toEqual({
+      volumes: { data: { external: { owner: "akash1owner", dseq: 1793083597928 } } },
+      services: { "your-service": { params: { storage: { data: { mount: "/data", volume: "data" } } } } }
+    });
+  });
+
+  function buildGroup(input: { volume?: GroupVolume | null; storages?: Array<Array<{ key: string; value: string }>>; requestsNothing?: boolean }) {
     const [group] = buildRpcDeployment().groups;
-    return { ...group, group_spec: { ...group.group_spec, ...("volume" in input && { volume: input.volume }) } };
+    const [unit] = group.group_spec.resources;
+    const storage = input.storages ? input.storages.map(attributes => ({ ...unit.resource.storage[0], attributes })) : unit.resource.storage;
+    const resources = input.requestsNothing ? [] : [{ ...unit, resource: { ...unit.resource, storage } }];
+
+    return { ...group, group_spec: { ...group.group_spec, resources, ...("volume" in input && { volume: input.volume }) } };
   }
 });

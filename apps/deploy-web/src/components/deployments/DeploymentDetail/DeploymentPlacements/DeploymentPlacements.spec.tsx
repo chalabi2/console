@@ -63,12 +63,26 @@ describe(DeploymentPlacements.name, () => {
     expect(screen.getByText("1 placement · 2 services")).toBeInTheDocument();
   });
 
+  it("summarizes a volume's own placement by the volume it holds", () => {
+    setup({ leases: [buildVolumeLease("a")] });
+
+    expect(screen.getByText("1 placement · 1 volume")).toBeInTheDocument();
+  });
+
   function buildLease(id: string, provider = "akash1prov") {
     return mock<LeaseDto>({ id, provider });
   }
 
   function buildLeaseInPlacement(id: string, placementName: string) {
     return mock<LeaseDto>({ id, provider: "akash1prov", group: mock<DeploymentGroup>({ group_spec: { name: placementName } } as Partial<DeploymentGroup>) });
+  }
+
+  function buildVolumeLease(id: string) {
+    return mock<LeaseDto>({
+      id,
+      provider: "akash1prov",
+      group: mock<DeploymentGroup>({ group_spec: { name: "global", volume: { vid: "data" } } } as Partial<DeploymentGroup>)
+    });
   }
 
   function setup(input: {

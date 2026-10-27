@@ -24,6 +24,7 @@ import { useDeploymentLeaseList } from "@src/queries/useLeaseQuery";
 import { useProvidersByAddresses } from "@src/queries/useProvidersQuery";
 import { isLeaseLive } from "@src/utils/leaseUtils";
 import { UrlService } from "@src/utils/urlUtils";
+import { deploymentVolumeOf } from "@src/utils/volumeUtils";
 import Layout from "../../layout/Layout";
 import { Title } from "../../shared/Title";
 import { DeploymentLeaseShell } from "../DeploymentLeaseShell";
@@ -81,6 +82,9 @@ type Tab = (typeof TABS)[number];
 /** Updating a deployment and opening a shell in it change it, so a caller who only reads this deployment does not get those tabs. */
 const READ_ONLY_TABS: readonly Tab[] = TABS.filter(tab => tab !== "UPDATE" && tab !== "SHELL");
 
+/** A volume runs no workload, so its provider has no logs, events or shell for it. */
+const WORKLOAD_TABS: readonly Tab[] = ["LOGS", "EVENTS", "SHELL"];
+
 const TAB_LABELS: Record<Tab, string> = {
   DETAILS: "Details",
   LOGS: "Logs",
@@ -104,12 +108,13 @@ export const DeploymentDetail: FC<DeploymentDetailProps> = ({ dseq, dependencies
 
   const [selectedTab, setSelectedTab] = useState<Tab>("DETAILS");
   const { canManage, isLoading: isLoadingManagement, isError: isManagementUnreadable, retry: retryManagement } = d.useCanManageDeployment(dseq);
-  const tabs = canManage ? TABS : READ_ONLY_TABS;
-  const activeTab = tabs.includes(selectedTab) ? selectedTab : "DETAILS";
   const [editedManifest, setEditedManifest] = useState<string | null>(null);
   const tabStripRef = useRef<HTMLDivElement>(null);
 
   const { data: deployment, isFetching: isLoadingDeployment, refetch: getDeploymentDetail, error: deploymentError } = d.useDeploymentDetail(address, dseq);
+  const isVolume = !!deploymentVolumeOf(deployment?.groups);
+  const tabs = (canManage ? TABS : READ_ONLY_TABS).filter(tab => !isVolume || !WORKLOAD_TABS.includes(tab));
+  const activeTab = tabs.includes(selectedTab) ? selectedTab : "DETAILS";
   d.useOpenDeploymentInItsOrganization({ dseq, isMissingHere: !!deploymentError, query: searchParams?.toString() ?? "" });
   const { isEnabled: isProjectsUiEnabled } = d.useProjectsUi();
   const { data: location } = d.useDeploymentLocationQuery(dseq, { enabled: isProjectsUiEnabled });
@@ -281,7 +286,9 @@ export const DeploymentDetail: FC<DeploymentDetailProps> = ({ dseq, dependencies
 
             <div className="flex-1 bg-muted py-6">
               <div className={PAGE_BAND}>
-                {activeTab === "DETAILS" && launch && <d.DeploymentLaunchState dseq={dseq} launch={launch} leases={leases ?? []} canManage={canManage} className="mb-6" />}
+                {activeTab === "DETAILS" && launch && (
+                  <d.DeploymentLaunchState dseq={dseq} launch={launch} leases={leases ?? []} canManage={canManage} className="mb-6" />
+                )}
 
                 {activeTab === "DETAILS" &&
                   (!launch || isActive) &&

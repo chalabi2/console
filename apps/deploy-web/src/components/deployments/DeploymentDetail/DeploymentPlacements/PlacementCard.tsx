@@ -14,6 +14,7 @@ import { isLeaseLive } from "@src/utils/leaseUtils";
 import { providerDisplayName } from "@src/utils/providerUtils";
 import { isProviderReclaimed, isReclaiming } from "@src/utils/reclamationUtils";
 import { UrlService } from "@src/utils/urlUtils";
+import { volumeClassOf, volumeOf } from "@src/utils/volumeUtils";
 import { ConfidentialComputeResources } from "../../ConfidentialComputeResources";
 import { DownloadAttestationEvidence } from "../../DownloadAttestationEvidence";
 import { ReclamationCard } from "../../ReclamationCard/ReclamationCard";
@@ -21,7 +22,8 @@ import { StatusBadge } from "../DeploymentStatusBadge";
 import type { ManifestServiceDetail } from "./placementModel";
 import { getPlacementGpuModels, getPlacementName, getProviderRegion, resolveLeaseGpus } from "./placementModel";
 import { PlacementServiceRow } from "./PlacementServiceRow";
-import { buildPlacementStats, PlacementStats } from "./PlacementStats";
+import { buildPlacementStats, buildVolumeStats, PlacementStats } from "./PlacementStats";
+import { VolumeAttachment } from "./VolumeAttachment";
 
 export const DEPENDENCIES = {
   useLeaseStatus,
@@ -29,7 +31,8 @@ export const DEPENDENCIES = {
   ReclamationCard,
   ConfidentialComputeResources,
   DownloadAttestationEvidence,
-  PlacementServiceRow
+  PlacementServiceRow,
+  VolumeAttachment
 };
 
 export interface PlacementCardProps {
@@ -68,6 +71,7 @@ export const PlacementCard: FC<PlacementCardProps> = ({
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
 
   const isReclaimed = isProviderReclaimed(lease);
+  const volume = volumeOf(lease.group);
   const teeType = getGroupTeeType(lease.group);
   const name = getPlacementName(lease.group, index);
   const region = getProviderRegion(provider);
@@ -126,7 +130,11 @@ export const PlacementCard: FC<PlacementCardProps> = ({
         </div>
         <div className="lg:shrink-0">
           <PlacementStats
-            stats={buildPlacementStats(lease, serviceNames.length, { models: gpuModels, resolved: resolvedGpus, isLoading: isLoadingLeaseGpus })}
+            stats={
+              volume
+                ? buildVolumeStats(lease, { vid: volume.vid, storageClass: volumeClassOf(lease.group) })
+                : buildPlacementStats(lease, serviceNames.length, { models: gpuModels, resolved: resolvedGpus, isLoading: isLoadingLeaseGpus })
+            }
           />
         </div>
       </div>
@@ -139,41 +147,45 @@ export const PlacementCard: FC<PlacementCardProps> = ({
         </div>
       )}
 
-      <div className="p-6">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            <span>Services in this placement</span>
-            <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1.5 text-[11px]">{serviceNames.length}</span>
+      {volume ? (
+        <d.VolumeAttachment vid={volume.vid} owner={lease.owner} dseq={dseq} />
+      ) : (
+        <div className="p-6">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <span>Services in this placement</span>
+              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1.5 text-[11px]">{serviceNames.length}</span>
+            </div>
+            {isLeaseActive && !isReclaimed && serviceNames.length > 0 && (
+              <button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={toggleAll}>
+                {allExpanded ? "Collapse all" : "Expand all"}
+              </button>
+            )}
           </div>
-          {isLeaseActive && !isReclaimed && serviceNames.length > 0 && (
-            <button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={toggleAll}>
-              {allExpanded ? "Collapse all" : "Expand all"}
-            </button>
+          {serviceNames.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No services found for this placement.</p>
+          ) : (
+            <div className="space-y-2">
+              {serviceNames.map(serviceName => (
+                <d.PlacementServiceRow
+                  key={serviceName}
+                  serviceName={serviceName}
+                  service={leaseStatus?.services?.[serviceName]}
+                  leaseState={lease.state}
+                  isReclaimed={isReclaimed}
+                  detail={services[serviceName]}
+                  uris={leaseStatus?.services?.[serviceName]?.uris}
+                  forwardedPorts={leaseStatus?.forwarded_ports?.[serviceName]}
+                  ips={leaseStatus?.ips?.[serviceName]}
+                  isLeaseStatusPending={isLeaseStatusPending}
+                  open={expanded.has(serviceName)}
+                  onOpenChange={next => handleOpenChange(serviceName, next)}
+                />
+              ))}
+            </div>
           )}
         </div>
-        {serviceNames.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No services found for this placement.</p>
-        ) : (
-          <div className="space-y-2">
-            {serviceNames.map(serviceName => (
-              <d.PlacementServiceRow
-                key={serviceName}
-                serviceName={serviceName}
-                service={leaseStatus?.services?.[serviceName]}
-                leaseState={lease.state}
-                isReclaimed={isReclaimed}
-                detail={services[serviceName]}
-                uris={leaseStatus?.services?.[serviceName]?.uris}
-                forwardedPorts={leaseStatus?.forwarded_ports?.[serviceName]}
-                ips={leaseStatus?.ips?.[serviceName]}
-                isLeaseStatusPending={isLeaseStatusPending}
-                open={expanded.has(serviceName)}
-                onOpenChange={next => handleOpenChange(serviceName, next)}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
 };

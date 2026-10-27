@@ -6,8 +6,11 @@ import { mock } from "vitest-mock-extended";
 import type { ForwardedPort, LeaseServiceStatus, LeaseStatusDto } from "@src/queries/useLeaseQuery";
 import type { DeploymentGroup, LeaseDto } from "@src/types/deployment";
 import type { ApiProviderList } from "@src/types/provider";
+import { formatByteSize } from "@src/utils/unitUtils";
+import type { GroupVolume } from "@src/utils/volumeUtils";
 import { DEPENDENCIES, PlacementCard } from "./PlacementCard";
 import type { ManifestServiceDetail } from "./placementModel";
+import type { VolumeAttachmentProps } from "./VolumeAttachment";
 
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -202,6 +205,31 @@ describe(PlacementCard.name, () => {
     expect(screen.queryByText("Reclaiming")).not.toBeInTheDocument();
   });
 
+  describe("when the placement leases a volume", () => {
+    it("describes the volume it leases instead of the compute it runs", () => {
+      setup({ lease: buildLease({ volume: { vid: "data" }, storageClass: "beta3" }) });
+
+      expect(screen.getByText("Volume").parentElement).toHaveTextContent("data");
+      expect(screen.getByText("Size").parentElement).toHaveTextContent(formatByteSize(2_000_000));
+      expect(screen.getByText("Class").parentElement).toHaveTextContent("beta3");
+      expect(screen.queryByText("vCPU")).not.toBeInTheDocument();
+    });
+
+    it("names the default class for a volume whose storage declares none", () => {
+      setup({ lease: buildLease({ volume: { vid: "data" } }) });
+
+      expect(screen.getByText("Class").parentElement).toHaveTextContent("default");
+    });
+
+    it("shows how another deployment attaches the volume instead of listing services", () => {
+      const VolumeAttachment = vi.fn((_props: VolumeAttachmentProps) => <div>volume-attachment</div>);
+      setup({ lease: buildLease({ volume: { vid: "data" } }), dependencies: { VolumeAttachment } });
+
+      expect(VolumeAttachment.mock.calls[0][0]).toEqual(expect.objectContaining({ vid: "data", owner: "akash1owner", dseq: "123" }));
+      expect(screen.queryByText("Services in this placement")).not.toBeInTheDocument();
+    });
+  });
+
   function buildLease(input?: {
     groupName?: string;
     state?: string;
@@ -209,10 +237,13 @@ describe(PlacementCard.name, () => {
     gpuAmount?: number;
     gpuAttributes?: { key: string; value: string }[];
     offeredGpus?: LeaseDto["offeredGpus"];
+    volume?: GroupVolume;
+    storageClass?: string;
   }) {
     return mock<LeaseDto>({
       offeredGpus: input?.offeredGpus,
       id: "1",
+      owner: "akash1owner",
       provider: "akash1p",
       state: input?.state ?? "active",
       cpuAmount: 6,
@@ -224,10 +255,17 @@ describe(PlacementCard.name, () => {
         group_spec: {
           name: input?.groupName ?? "dcloud",
           requirements: { attributes: [] as { key: string; value: string }[] },
-          resources: input?.gpuAttributes ? [{ resource: { gpu: { attributes: input.gpuAttributes } } }] : ([] as DeploymentGroup["group_spec"]["resources"])
+          resources: resourcesOf(input),
+          ...(input?.volume && { volume: input.volume })
         }
       } as Partial<DeploymentGroup>)
     });
+  }
+
+  function resourcesOf(input?: { gpuAttributes?: { key: string; value: string }[]; volume?: GroupVolume; storageClass?: string }) {
+    if (input?.gpuAttributes) return [{ resource: { gpu: { attributes: input.gpuAttributes } } }];
+    if (input?.volume) return [{ resource: { storage: [{ attributes: input.storageClass ? [{ key: "class", value: input.storageClass }] : [] }] } }];
+    return [] as DeploymentGroup["group_spec"]["resources"];
   }
 
   function buildStatus(serviceNames: string[], forwardedPorts: Record<string, ForwardedPort[]> = {}) {

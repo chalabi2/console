@@ -34,3 +34,11 @@ export function buildPlacementStats(lease: LeaseDto, serviceCount: number, gpu: 
   stats.push({ label: "Services", value: serviceCount });
   return stats;
 }
+
+export function buildVolumeStats(lease: LeaseDto, volume: { vid: string; storageClass?: string }): PlacementStat[] {
+  return [
+    { label: "Volume", value: volume.vid },
+    { label: "Size", value: formatByteSize(lease.storageAmount) },
+    { label: "Class", value: volume.storageClass ?? "default" }
+  ];
+}
