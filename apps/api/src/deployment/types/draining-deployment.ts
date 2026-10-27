@@ -15,8 +15,9 @@ export type RpcDeploymentInfo = {
   dseq: string;
   owner: string;
   denom: string;
-  escrowBalance: number;
-  createdHeight: number;
+  /** What the escrow account held when the chain last settled it, at `settledHeight`. */
+  remainingFunds: number;
+  settledHeight: number;
   isEscrowOpen: boolean;
 };
 

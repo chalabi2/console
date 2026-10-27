@@ -11,6 +11,11 @@ const OPEN_ESCROW_ACCOUNT_STATE = "open";
 /** Each deployment read directly costs two chain requests, so larger sets page the owner's history instead. */
 export const MAX_DSEQS_FOR_DIRECT_LOOKUP = 10;
 
+/** Counted from the last settlement, the only height the chain reports a balance at, so a rate that changed since creation, as a lease resize changes it, is never spread back over the whole deployment. */
+function predictedClosedHeightOf({ settledHeight, remainingFunds }: RpcDeploymentInfo, blockRate: number): number {
+  return settledHeight + Math.max(0, Math.ceil(remainingFunds / blockRate));
+}
+
 @singleton()
 export class DrainingDeploymentRpcService implements DrainingDeploymentLeaseSource {
   private readonly loggerService: ReturnType<CreateLogger>;
@@ -163,8 +168,8 @@ export class DrainingDeploymentRpcService implements DrainingDeploymentLeaseSour
       dseq: deployment.deployment.id.dseq,
       owner: deployment.deployment.id.owner,
       denom: deployment.escrow_account.state.funds[0]?.denom ?? deployment.escrow_account.state.transferred[0]?.denom ?? "",
-      createdHeight: Number(deployment.deployment.created_at),
-      escrowBalance: this.#sumAmounts(deployment.escrow_account.state.funds) + this.#sumAmounts(deployment.escrow_account.state.transferred),
+      remainingFunds: this.#sumAmounts(deployment.escrow_account.state.funds),
+      settledHeight: Number(deployment.escrow_account.state.settled_at),
       isEscrowOpen: deployment.escrow_account.state.state === OPEN_ESCROW_ACCOUNT_STATE
     };
   }
@@ -241,11 +246,10 @@ export class DrainingDeploymentRpcService implements DrainingDeploymentLeaseSour
 
   /**
    * Adds predicted closure heights to draining deployments.
-   * Calculates closure height based on escrow balance and block rate.
-   * Flags deployments whose escrow account is no longer open before the balance and rate checks,
+   * Calculates closure height from what the escrow account held at its last settlement and the block rate.
+   * Flags deployments whose escrow account is no longer open before the rate check,
    * which would otherwise drop a drained-and-closed deployment before it can be marked closed.
-   * Filters out deployments with missing data, zero balance,
-   * or invalid block rates, logging warnings for each case.
+   * Filters out deployments with missing data or invalid block rates, logging warnings for each case.
    * Then adds the deployments that have no lease at all, which the pass over leases cannot reach.
    *
    * @param leaseMap - Map of draining deployments without predictedClosedHeight
@@ -272,15 +276,6 @@ export class DrainingDeploymentRpcService implements DrainingDeploymentLeaseSour
         return [...acc, { ...drainingDeployment, predictedClosedHeight: 0, isClosed: true }];
       }
 
-      if (deployment.escrowBalance <= 0) {
-        this.loggerService.warn({
-          event: "DEPLOYMENT_HAS_NO_BALANCE",
-          dseq: drainingDeployment.dseq,
-          owner: drainingDeployment.owner
-        });
-        return acc;
-      }
-
       if (drainingDeployment.blockRate <= 0) {
         this.loggerService.warn({
           event: "DEPLOYMENT_BLOCK_RATE_INVALID",
@@ -290,11 +285,7 @@ export class DrainingDeploymentRpcService implements DrainingDeploymentLeaseSour
         return acc;
       }
 
-      // Calculate blocks: ceil(escrow / rate)
-      const blocks = Math.ceil(deployment.escrowBalance / drainingDeployment.blockRate);
-      const predictedClosedHeight = deployment.createdHeight + blocks;
-
-      return [...acc, { ...drainingDeployment, predictedClosedHeight }];
+      return [...acc, { ...drainingDeployment, predictedClosedHeight: predictedClosedHeightOf(deployment, drainingDeployment.blockRate) }];
     }, [] as DrainingDeploymentOutput[]);
 
     return [...fromLeases, ...this.#withoutLease(leaseMap, deploymentMap)];

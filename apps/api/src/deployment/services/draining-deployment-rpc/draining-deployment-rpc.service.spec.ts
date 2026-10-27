@@ -17,7 +17,7 @@ describe(DrainingDeploymentRpcService.name, () => {
       const input = {
         leases: [{ blockRate: 50 }],
         deployment: {
-          createdHeight: 995000,
+          settledHeight: 999000,
           funds: 40000,
           transferred: 20000
         }
@@ -35,8 +35,18 @@ describe(DrainingDeploymentRpcService.name, () => {
         owner,
         denom: "uakt",
         blockRate: input.leases[0].blockRate,
-        predictedClosedHeight: Math.ceil(input.deployment.createdHeight + (input.deployment.funds + input.deployment.transferred) / input.leases[0].blockRate)
+        predictedClosedHeight: input.deployment.settledHeight + Math.ceil(input.deployment.funds / input.leases[0].blockRate)
       });
+    });
+
+    it("counts the runway from the last settlement, so a rate that changed since creation is not spread back over the deployment", async () => {
+      const { service, owner, dseqs, closureHeight } = setup({
+        inputs: [{ leases: [{ blockRate: 50 }], deployment: { createdHeight: 900000, settledHeight: 999000, funds: 40000, transferred: 5000000 } }]
+      });
+
+      const [deployment] = await service.findManyByDseqAndOwner(closureHeight, owner, dseqs);
+
+      expect(deployment.predictedClosedHeight).toBe(999800);
     });
 
     it("filters deployments by closureHeight", async () => {
@@ -44,7 +54,7 @@ describe(DrainingDeploymentRpcService.name, () => {
         leases: [{ blockRate: 50 }],
         deployment: {
           dseq: faker.string.numeric(6),
-          createdHeight: 995000,
+          settledHeight: 999000,
           funds: 40000,
           transferred: 20000
         }
@@ -52,7 +62,7 @@ describe(DrainingDeploymentRpcService.name, () => {
       const filteredInput = {
         leases: [{ blockRate: 50 }],
         deployment: {
-          createdHeight: 995000,
+          settledHeight: 999000,
           funds: 250000,
           transferred: 20000
         }
@@ -114,30 +124,14 @@ describe(DrainingDeploymentRpcService.name, () => {
       );
     });
 
-    it("excludes deployments with zero balance", async () => {
-      const { service, loggerService, owner, dseqs, closureHeight } = setup({
-        inputs: [
-          {
-            leases: [{ blockRate: 50 }],
-            deployment: {
-              createdHeight: 995000,
-              funds: 0,
-              transferred: 0
-            }
-          }
-        ]
+    it("predicts an open deployment its last settlement drained to close at that settlement", async () => {
+      const { service, owner, dseqs, closureHeight } = setup({
+        inputs: [{ leases: [{ blockRate: 50 }], deployment: { settledHeight: 999000, funds: 0, transferred: 20000 } }]
       });
 
       const result = await service.findManyByDseqAndOwner(closureHeight, owner, dseqs);
 
-      expect(result).toHaveLength(0);
-      expect(loggerService.warn).toHaveBeenCalledWith(
-        expect.objectContaining({
-          event: "DEPLOYMENT_HAS_NO_BALANCE",
-          dseq: Number(dseqs[0]),
-          owner
-        })
-      );
+      expect(result).toEqual([expect.objectContaining({ dseq: Number(dseqs[0]), predictedClosedHeight: 999000 })]);
     });
 
     it("excludes deployments with invalid block rate", async () => {
@@ -459,6 +453,7 @@ describe(DrainingDeploymentRpcService.name, () => {
       deployment?: {
         dseq?: string;
         createdHeight?: number;
+        settledHeight?: number;
         funds?: number;
         transferred?: number;
         escrowState?: string;
@@ -496,6 +491,7 @@ describe(DrainingDeploymentRpcService.name, () => {
 
       if (input.deployment) {
         const createdHeight = input.deployment.createdHeight ?? 995000;
+        const settledHeight = input.deployment.settledHeight ?? 999000;
         const funds = input.deployment.funds ?? 40000;
         const transferred = input.deployment.transferred ?? 20000;
 
@@ -512,6 +508,7 @@ describe(DrainingDeploymentRpcService.name, () => {
         if ("escrow_account" in deploymentInfo) {
           deploymentInfo.escrow_account.state.funds = [{ denom: "uakt", amount: String(funds) }];
           deploymentInfo.escrow_account.state.transferred = [{ denom: "uakt", amount: String(transferred) }];
+          deploymentInfo.escrow_account.state.settled_at = String(settledHeight);
           deploymentInfo.escrow_account.state.state = input.deployment.escrowState ?? "open";
         }
         deployments.push(deployment);
