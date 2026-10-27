@@ -141,6 +141,33 @@ describe(CreateVolumeDialog.name, () => {
 
     expect(screen.getByText("Waiting for providers to bid…")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Lease volume" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Change settings" })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { case: "no provider has bid yet", step: { kind: "choosing" as const, dseq: DSEQ }, bids: [], isWaiting: true },
+    { case: "a provider has bid", step: { kind: "choosing" as const, dseq: DSEQ }, bids: [BID], isWaiting: false },
+    { case: "the volume is still described", step: { kind: "editing" as const }, bids: [], isWaiting: false }
+  ])("waits on bids only while $case leaves none to choose from", ({ step, bids, isWaiting }) => {
+    const { useHasWaited } = setup({ step, bids });
+
+    expect(useHasWaited).toHaveBeenLastCalledWith(isWaiting, 30_000);
+  });
+
+  it("says why no provider bid once the wait runs out, and offers to change the settings", () => {
+    setup({ step: { kind: "choosing", dseq: DSEQ }, hasWaited: true });
+
+    expect(screen.getByText(/No provider has bid yet\. Providers cap how long they keep a volume's data after it closes/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Change settings" })).toBeInTheDocument();
+  });
+
+  it("takes the volume back to its settings without closing", async () => {
+    const { abandon, onOpenChange } = setup({ step: { kind: "choosing", dseq: DSEQ }, hasWaited: true });
+
+    await userEvent.click(screen.getByRole("button", { name: "Change settings" }));
+
+    expect(abandon).toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalled();
   });
 
   it("offers each bidding provider with its region and price", () => {
@@ -203,7 +230,14 @@ describe(CreateVolumeDialog.name, () => {
     expect(screen.getByRole("button", { name: "Leasing…" })).toBeDisabled();
   });
 
-  function setup(input: { step?: CreateVolumeStep; bids?: VolumeBid[]; providers?: ApiProviderList[]; takenNames?: string[]; leased?: string | undefined }) {
+  function setup(input: {
+    step?: CreateVolumeStep;
+    bids?: VolumeBid[];
+    providers?: ApiProviderList[];
+    takenNames?: string[];
+    leased?: string | undefined;
+    hasWaited?: boolean;
+  }) {
     const create = vi.fn(async (_volume: { name: string; sdl: string }) => undefined);
     const lease = vi.fn(async (_provider: string) => ("leased" in input ? input.leased : DSEQ));
     const abandon = vi.fn(async () => undefined);
@@ -212,8 +246,10 @@ describe(CreateVolumeDialog.name, () => {
     const useProvidersByAddresses = vi.fn((_addresses: readonly string[]) =>
       mock<ReturnType<typeof DEPENDENCIES.useProvidersByAddresses>>({ data: input.providers ?? [] })
     );
+    const useHasWaited = vi.fn((_isWaiting: boolean, _waitMs: number) => !!input.hasWaited);
     const dependencies = {
       ...DEPENDENCIES,
+      useHasWaited,
       useCreateVolume: () => ({ step: input.step ?? { kind: "editing" as const }, bids: input.bids ?? [], create, lease, abandon }),
       useWallet: () => mock<ReturnType<typeof DEPENDENCIES.useWallet>>({ address: OWNER }),
       useProvidersByAddresses,
@@ -231,6 +267,6 @@ describe(CreateVolumeDialog.name, () => {
       />
     );
 
-    return { create, lease, abandon, onCreated, onOpenChange, useProvidersByAddresses };
+    return { create, lease, abandon, onCreated, onOpenChange, useProvidersByAddresses, useHasWaited };
   }
 });

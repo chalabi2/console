@@ -31,6 +31,7 @@ import { SELECT_TRUNCATE_VALUE } from "@src/components/deployments/ConfigureDepl
 import { getProviderRegion } from "@src/components/deployments/DeploymentDetail/DeploymentPlacements/placementModel";
 import { PricePerTimeUnit } from "@src/components/shared/PricePerTimeUnit";
 import { useWallet } from "@src/context/WalletProvider";
+import { useHasWaited } from "@src/hooks/useHasWaited/useHasWaited";
 import { useProvidersByAddresses } from "@src/queries/useProvidersQuery";
 import type { PlacementType } from "@src/types";
 import type { ApiProviderList } from "@src/types/provider";
@@ -41,7 +42,10 @@ import { defaultPricing } from "@src/utils/sdl/data";
 import { volumeSdlOf } from "@src/utils/sdl/volumeSdl";
 import { useCreateVolume, type VolumeBid } from "./useCreateVolume";
 
-export const DEPENDENCIES = { useCreateVolume, useWallet, useProvidersByAddresses, NumberUnitInput, PricePerTimeUnit };
+export const DEPENDENCIES = { useCreateVolume, useWallet, useProvidersByAddresses, useHasWaited, NumberUnitInput, PricePerTimeUnit };
+
+/** A provider bids within a few blocks of seeing an order, so silence past this means none will. */
+const NO_BID_HINT_DELAY_MS = 30_000;
 
 /** The chain names a volume with a DNS label, which also keys the service's storage params. */
 const VOLUME_NAME_PATTERN = /^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$/;
@@ -106,6 +110,12 @@ export const CreateVolumeDialog: FC<Props> = ({ open, onOpenChange, placement, t
     if (!dseq) return;
     onCreated({ name, owner: address, dseq });
     onOpenChange(false);
+  };
+
+  const hasWaitedForBids = d.useHasWaited(step.kind === "choosing" && bids.length === 0, NO_BID_HINT_DELAY_MS);
+
+  const changeSettings = () => {
+    void abandon();
   };
 
   const closeWithoutAVolume = () => {
@@ -201,9 +211,22 @@ export const CreateVolumeDialog: FC<Props> = ({ open, onOpenChange, placement, t
             <>
               <p className="text-sm text-muted-foreground">Choose the provider to lease {name} from. Deployments that mount it run there too.</p>
               {bids.length === 0 ? (
-                <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Spinner size="small" /> Waiting for providers to bid…
-                </p>
+                <>
+                  <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Spinner size="small" /> Waiting for providers to bid…
+                  </p>
+                  {hasWaitedForBids && (
+                    <div className="flex flex-col items-start gap-2 text-sm text-muted-foreground">
+                      <p>
+                        No provider has bid yet. Providers cap how long they keep a volume&apos;s data after it closes and how large a volume they take, so a
+                        shorter period after close or a smaller size reaches more of them.
+                      </p>
+                      <Button variant="outline" size="sm" onClick={changeSettings}>
+                        Change settings
+                      </Button>
+                    </div>
+                  )}
+                </>
               ) : (
                 <RadioGroup aria-label="Provider" value={provider} onValueChange={setProvider} className="flex flex-col gap-2">
                   {bids.map(bid => (
