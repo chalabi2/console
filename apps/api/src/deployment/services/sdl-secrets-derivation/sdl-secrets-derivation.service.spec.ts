@@ -8,6 +8,8 @@ import { SDL_MAX_LENGTH } from "@src/deployment/config/sdl.config";
 import { isSdlReference, MAX_SDL_REFERENCE_NAME_LENGTH, SdlReferenceService } from "@src/deployment/services/sdl-reference/sdl-reference.service";
 import { SdlSecretsDerivationService } from "./sdl-secrets-derivation.service";
 
+type SdlWithServices = SDLInput & { services: NonNullable<SDLInput["services"]> };
+
 const IMAGE = "ghcr.io/akash-network/hello-akash-world:2.1.0";
 const REGISTRY_HOST = "registry.example.test";
 const REGISTRY_EMAIL = "ops@example.test";
@@ -194,7 +196,7 @@ describe(SdlSecretsDerivationService.name, () => {
     it("rewrites the env declaration an aliased list is shared through, and the copy in args with it", () => {
       const { service } = setup();
       const token = faker.string.alphanumeric(12);
-      const document = yaml.raw<SDLInput>(sdlSharingOneListBetweenEnvAndArgs(`API_TOKEN=${token}`));
+      const document = yaml.raw<SdlWithServices>(sdlSharingOneListBetweenEnvAndArgs(`API_TOKEN=${token}`));
 
       const secrets = service.derive(document, { includeEnvValues: true });
 
@@ -219,7 +221,7 @@ describe(SdlSecretsDerivationService.name, () => {
     it("mints one name for one shared credentials block rather than one per service", () => {
       const { service } = setup();
       const password = faker.internet.password();
-      const document = yaml.raw<SDLInput>(sdlSharingCredentials(password));
+      const document = yaml.raw<SdlWithServices>(sdlSharingCredentials(password));
 
       const secrets = service.derive(document, { includeEnvValues: false });
 
@@ -232,7 +234,7 @@ describe(SdlSecretsDerivationService.name, () => {
     it("mints one name for one shared env list rather than one per service", () => {
       const { service } = setup();
       const token = faker.string.alphanumeric(20);
-      const document = yaml.raw<SDLInput>(sdlSharingEnv(`API_TOKEN=${token}`));
+      const document = yaml.raw<SdlWithServices>(sdlSharingEnv(`API_TOKEN=${token}`));
 
       const secrets = service.derive(document, { includeEnvValues: true });
 
@@ -457,7 +459,7 @@ describe(SdlSecretsDerivationService.name, () => {
     const rewritten = documentWith({ web: { env: values.map((value, index) => `V${index}=${value}`) } });
 
     const secrets = service.derive(rewritten, { includeEnvValues: true });
-    const reparsed = yaml.raw<SDLInput>(dump(rewritten, { lineWidth: -1 }));
+    const reparsed = yaml.raw<SdlWithServices>(dump(rewritten, { lineWidth: -1 }));
 
     expect(sdlReferenceService.substitute(reparsed, { secrets })).toEqual([]);
     expect(reparsed.services.web.env).toEqual(values.map((value, index) => `V${index}=${value}`));
@@ -490,7 +492,7 @@ describe(SdlSecretsDerivationService.name, () => {
   function documentWith(services: Record<string, Record<string, unknown>>) {
     const names = Object.keys(services);
 
-    return yaml.raw<SDLInput>(
+    return yaml.raw<SdlWithServices>(
       JSON.stringify({
         version: "2.0",
         services: Object.fromEntries(Object.entries(services).map(([name, overrides]) => [name, { image: IMAGE, ...overrides }])),

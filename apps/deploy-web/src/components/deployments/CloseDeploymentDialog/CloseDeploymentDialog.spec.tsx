@@ -13,6 +13,7 @@ const DATA: OwnedVolume = {
   owner: "akash1owner",
   dseq: "100",
   sizeBytes: 1_073_741_824,
+  access: "mount",
   state: "mounted",
   mountedBy: DSEQ,
   reclaim: "retain",

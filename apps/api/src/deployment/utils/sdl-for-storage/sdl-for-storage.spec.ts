@@ -90,10 +90,10 @@ describe(sdlForStorage.name, () => {
       const credentials = { host: "registry.example.test", username: faker.string.alphanumeric(10), password: faker.internet.password() };
       const token = faker.string.alphanumeric(24);
 
-      const { document } = parseSdlForStorage(sdlWith({ web: { env: [`API_TOKEN=${token}`], credentials } }));
+      const document = parseSdlForStorage(sdlWith({ web: { env: [`API_TOKEN=${token}`], credentials } })).document as SdlWithServices;
 
-      expect(document!.services.web.env).toEqual([`API_TOKEN=${token}`]);
-      expect(document!.services.web.credentials).toMatchObject(credentials);
+      expect(document.services.web.env).toEqual([`API_TOKEN=${token}`]);
+      expect(document.services.web.credentials).toMatchObject(credentials);
     });
 
     it("stores what the rewrite left behind rather than what arrived", () => {
@@ -283,8 +283,10 @@ describe(sdlForStorage.name, () => {
 
   type ServiceOverrides = Record<string, unknown>;
 
+  type SdlWithServices = SDLInput & { services: NonNullable<SDLInput["services"]>; profiles: { compute: NonNullable<SDLInput["profiles"]["compute"]> } };
+
   function storedDocumentOf(rawSdl: string) {
-    return yaml.raw<SDLInput>(storedSdlOf(rawSdl));
+    return yaml.raw<SdlWithServices>(storedSdlOf(rawSdl));
   }
 
   function storedSdlOf(rawSdl: string): string {
@@ -293,14 +295,14 @@ describe(sdlForStorage.name, () => {
     return sdl as string;
   }
 
-  function storedFrom(rawSdl: string, maxLength: number, takeValuesOut: (document: SDLInput) => void = TAKING_NOTHING_OUT) {
+  function storedFrom(rawSdl: string, maxLength: number, takeValuesOut: (document: SdlWithServices) => void = TAKING_NOTHING_OUT) {
     const parsed = parseSdlForStorage(rawSdl);
 
     if (parsed.document === null) {
       throw new Error(`fixture is not parseable yaml, at line ${parsed.at?.line}`);
     }
 
-    takeValuesOut(parsed.document);
+    takeValuesOut(parsed.document as SdlWithServices);
 
     return sdlForStorage(parsed, maxLength);
   }

@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 import type { SdlManifest } from "@src/deployment/services/sdl/sdl.service";
 import { findGroupWithChangedResources, type OnChainGroupSpec } from "./changed-group-resources";
 
+type SdlWithServices = SDLInput & { services: NonNullable<SDLInput["services"]>; profiles: { compute: NonNullable<SDLInput["profiles"]["compute"]> } };
+
 describe(findGroupWithChangedResources.name, () => {
   it("finds nothing when the SDL declares the resources the deployment holds on chain", () => {
     expect(findGroupWithChangedResources(groupSpecsOf(sdl()), [onChainGroupSpec()])).toBeUndefined();
@@ -21,16 +23,16 @@ describe(findGroupWithChangedResources.name, () => {
   });
 
   it.each([
-    { change: "cpu", apply: (input: SDLInput) => (input.profiles.compute.web.resources.cpu.units = 4) },
-    { change: "memory", apply: (input: SDLInput) => (input.profiles.compute.web.resources.memory.size = "4096Mi") },
-    { change: "storage", apply: (input: SDLInput) => (input.profiles.compute.web.resources.storage = [{ size: "8192Mi" }]) },
+    { change: "cpu", apply: (input: SdlWithServices) => (input.profiles.compute.web.resources.cpu.units = 4) },
+    { change: "memory", apply: (input: SdlWithServices) => (input.profiles.compute.web.resources.memory.size = "4096Mi") },
+    { change: "storage", apply: (input: SdlWithServices) => (input.profiles.compute.web.resources.storage = [{ size: "8192Mi" }]) },
     {
       change: "gpu",
-      apply: (input: SDLInput) => (input.profiles.compute.web.resources.gpu = { units: 1, attributes: { vendor: { nvidia: [{ model: "h100" }] } } })
+      apply: (input: SdlWithServices) => (input.profiles.compute.web.resources.gpu = { units: 1, attributes: { vendor: { nvidia: [{ model: "h100" }] } } })
     },
-    { change: "replica count", apply: (input: SDLInput) => (input.deployment.web.dcloud.count = 2) },
-    { change: "global exposes", apply: (input: SDLInput) => input.services.web.expose!.push({ port: 9000, as: 9000, to: [{ global: true }] }) },
-    { change: "global expose from ingress to a port", apply: (input: SDLInput) => (input.services.web.expose![0].as = 8080) }
+    { change: "replica count", apply: (input: SdlWithServices) => (input.deployment.web.dcloud.count = 2) },
+    { change: "global exposes", apply: (input: SdlWithServices) => input.services.web.expose!.push({ port: 9000, as: 9000, to: [{ global: true }] }) },
+    { change: "global expose from ingress to a port", apply: (input: SdlWithServices) => (input.services.web.expose![0].as = 8080) }
   ])("names the group when the SDL changes its $change", ({ apply }) => {
     const changed = sdl();
     apply(changed);
@@ -90,7 +92,7 @@ describe(findGroupWithChangedResources.name, () => {
     return (result.value as SdlManifest).groupSpecs;
   }
 
-  function sdl(): SDLInput {
+  function sdl(): SdlWithServices {
     return {
       version: "2.0",
       services: {

@@ -1,7 +1,10 @@
+import type { SDLInput } from "@akashnetwork/chain-sdk";
 import { generateManifest } from "@akashnetwork/chain-sdk";
 import { describe, expect, it } from "vitest";
 
 import { buildGpuCheckSdl, type GpuCheck, toPlacementName } from "./gpu-check-sdl";
+
+type SdlWithServices = SDLInput & { services: NonNullable<SDLInput["services"]>; profiles: { compute: NonNullable<SDLInput["profiles"]["compute"]> } };
 
 describe(buildGpuCheckSdl.name, () => {
   it("builds a valid SDL with one group per check, in the order the checks came in", () => {
@@ -17,7 +20,7 @@ describe(buildGpuCheckSdl.name, () => {
   });
 
   it("asks a pricing check for one gpu with tiny cpu, memory and storage, at a ceiling price no provider would refuse", () => {
-    const sdl = buildGpuCheckSdl([{ model: "h100", shape: "pricing" }]);
+    const sdl = buildGpuCheckSdl([{ model: "h100", shape: "pricing" }]) as SdlWithServices;
 
     expect(sdl.services.gpu00).toEqual({
       image: "ubuntu:22.04",
@@ -36,7 +39,7 @@ describe(buildGpuCheckSdl.name, () => {
   });
 
   it("asks a typical check for one gpu with the cpu, memory and storage gpu deployments usually ask for", () => {
-    const sdl = buildGpuCheckSdl([{ model: "h100", shape: "typical" }]);
+    const sdl = buildGpuCheckSdl([{ model: "h100", shape: "typical" }]) as SdlWithServices;
 
     expect(sdl.profiles.compute.gpu00.resources).toEqual({
       cpu: { units: 4 },

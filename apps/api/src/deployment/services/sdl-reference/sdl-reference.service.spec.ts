@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 import type { SdlReferenceResolver } from "./sdl-reference.service";
 import { MAX_SDL_REFERENCE_NAME_LENGTH, SdlReferenceService } from "./sdl-reference.service";
 
+type SdlWithServices = SDLInput & { services: NonNullable<SDLInput["services"]> };
+
 const VALID_NAMES = ["A", "a", "_", "_A", "A9", `A${"b".repeat(62)}`, `A${"b".repeat(63)}`];
 const RESERVED_VALUES = ["ac-", "ac-://X", "ac-secret9://X", "ac-secret:/X", "ac-SECRET://X", `ac-${"z".repeat(17)}://X`, "ac-secret://TOKEN\n"];
 const INVALID_NAMES = ["", "9NAME", "NA-ME", "NA.ME", "NA ME", "NAMÉ", "NAME!", `A${"b".repeat(64)}`, "NAME/", "NA\nME"];
@@ -608,25 +610,25 @@ describe(SdlReferenceService.name, () => {
   function sdlWithEnv(webEnv: unknown[], workerEnv?: unknown[]) {
     const services = [serviceYaml("web", webEnv), workerEnv ? serviceYaml("worker", workerEnv) : ""].join("");
 
-    return yaml.raw<SDLInput>(sdlYaml(services));
+    return yaml.raw<SdlWithServices>(sdlYaml(services));
   }
 
   function sdlWithCredentials(webCredentials: Record<string, string>, workerCredentials?: Record<string, string>, webEnv: unknown[] = []) {
     const services = [serviceYaml("web", webEnv, webCredentials), workerCredentials ? serviceYaml("worker", [], workerCredentials) : ""].join("");
 
-    return yaml.raw<SDLInput>(sdlYaml(services));
+    return yaml.raw<SdlWithServices>(sdlYaml(services));
   }
 
   function sdlSharingOneCredentialsBlock(password: string) {
     const block = credentialsYaml({ password }).replace("    credentials:\n", "");
 
-    return yaml.raw<SDLInput>(
+    return yaml.raw<SdlWithServices>(
       sdlYaml(`  web:\n    image: nginx\n    credentials: &registry\n${block}  worker:\n    image: nginx\n    credentials: *registry\n`)
     );
   }
 
   function sdlSharingOneEnvList(entry: string) {
-    return yaml.raw<SDLInput>(
+    return yaml.raw<SdlWithServices>(
       sdlYaml(`  web:\n    image: nginx\n    env: &shared\n      - ${JSON.stringify(entry)}\n  worker:\n    image: nginx\n    env: *shared\n`)
     );
   }

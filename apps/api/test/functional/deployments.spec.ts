@@ -2782,7 +2782,9 @@ describe("Deployments API", () => {
 
     it("stores a token bound to the deployment it updated, opening to every value the sdl carried", async () => {
       const { user, setting } = await updateDeploymentWithSecrets();
-      const sdl: SDLInput = yaml.raw(fs.readFileSync(path.resolve(__dirname, "../mocks/hello-world-sdl-with-secrets.yml"), "utf8"));
+      const sdl: SDLInput & { services: NonNullable<SDLInput["services"]> } = yaml.raw(
+        fs.readFileSync(path.resolve(__dirname, "../mocks/hello-world-sdl-with-secrets.yml"), "utf8")
+      );
       const env = Object.fromEntries(
         Object.values(sdl.services)[0].env?.map(e => {
           const index = e.indexOf("=");

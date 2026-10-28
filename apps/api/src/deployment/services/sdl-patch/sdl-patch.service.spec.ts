@@ -5,7 +5,10 @@ import type { PatchService } from "@src/deployment/http-schemas/deployment.schem
 import { MAX_ECHOED_REFERENCE_LENGTH, SdlReferenceService } from "@src/deployment/services/sdl-reference/sdl-reference.service";
 import { asksToResize, SdlPatchService } from "./sdl-patch.service";
 
-type SdlExposeEntry = NonNullable<SDLInput["services"][string]["expose"]>[number];
+type SdlWithServices = SDLInput & { services: NonNullable<SDLInput["services"]>; profiles: { compute: NonNullable<SDLInput["profiles"]["compute"]> } };
+type SdlServiceEntry = NonNullable<SDLInput["services"]>[string];
+type SdlExposeEntry = NonNullable<SdlServiceEntry["expose"]>[number];
+type SdlComputeProfile = NonNullable<SDLInput["profiles"]["compute"]>[string];
 
 describe(SdlPatchService.name, () => {
   it("replaces the image of the named service", () => {
@@ -1125,7 +1128,7 @@ describe(SdlPatchService.name, () => {
       const storage = [{ name: "data", size: "20Gi", attributes: { persistent: "true", class: "beta3" } }, { size: "5Gi" }];
       const { service, document } = setup({
         services: { web: { image: "nginx" } },
-        compute: { web: profile({ storage: storage as SDLInput["profiles"]["compute"][string]["resources"]["storage"] }) },
+        compute: { web: profile({ storage: storage as SdlComputeProfile["resources"]["storage"] }) },
         deployment: { web: { dcloud: { profile: "web", count: 1 } } }
       });
 
@@ -1162,7 +1165,7 @@ describe(SdlPatchService.name, () => {
       );
     });
 
-    function profile(resources: Partial<SDLInput["profiles"]["compute"][string]["resources"]> = {}): SDLInput["profiles"]["compute"][string] {
+    function profile(resources: Partial<SdlComputeProfile["resources"]> = {}): SdlComputeProfile {
       return { resources: { cpu: { units: 1 }, memory: { size: "1Gi" }, storage: { size: "5Gi" }, ...resources } };
     }
   });
@@ -1201,14 +1204,14 @@ describe(SdlPatchService.name, () => {
   });
 
   function setup(input: {
-    services: Record<string, SDLInput["services"][string]>;
+    services: Record<string, SdlServiceEntry>;
     compute?: SDLInput["profiles"]["compute"];
     deployment?: SDLInput["deployment"];
     shareEnv?: string[];
-    shareCredentials?: NonNullable<SDLInput["services"][string]["credentials"]>;
-    shareExpose?: NonNullable<SDLInput["services"][string]["expose"]>;
-    shareStorage?: NonNullable<NonNullable<SDLInput["services"][string]["params"]>["storage"]>;
-    shareHttpOptions?: NonNullable<NonNullable<SDLInput["services"][string]["expose"]>[number]["http_options"]>;
+    shareCredentials?: NonNullable<SdlServiceEntry["credentials"]>;
+    shareExpose?: NonNullable<SdlServiceEntry["expose"]>;
+    shareStorage?: NonNullable<NonNullable<SdlServiceEntry["params"]>["storage"]>;
+    shareHttpOptions?: NonNullable<SdlExposeEntry["http_options"]>;
     aliasWebAs?: string;
     volumes?: SDLInput["volumes"];
   }) {
@@ -1224,7 +1227,7 @@ describe(SdlPatchService.name, () => {
 
     if (input.aliasWebAs) services[input.aliasWebAs] = services.web;
 
-    const document: SDLInput = {
+    const document: SdlWithServices = {
       version: input.volumes ? "2.2" : "2.0",
       services,
       profiles: { compute: input.compute ?? {}, placement: {} },

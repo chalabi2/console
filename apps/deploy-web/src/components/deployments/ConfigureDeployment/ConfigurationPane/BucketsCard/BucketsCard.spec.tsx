@@ -91,7 +91,7 @@ describe(BucketsCard.name, () => {
     await chooseAssets();
     await userEvent.click(screen.getByRole("button", { name: "Connect bucket" }));
 
-    expect(mutate.mock.lastCall?.[0].lease.provider.owner).toBe(PROVIDER);
+    expect(mutate.mock.lastCall?.[0].lease.provider?.owner).toBe(PROVIDER);
   });
 
   it("connects with a read-only key when chosen", async () => {

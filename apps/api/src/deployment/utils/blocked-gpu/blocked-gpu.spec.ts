@@ -140,7 +140,7 @@ function buildSdl(input: { gpu?: Record<string, GpuEntry[]> }): SDLInput {
         storage: { size: "1Gi" },
         gpu: { units: 1, attributes: { vendor: vendorMap } }
       }
-    } as SDLInput["profiles"]["compute"][string];
+    } as NonNullable<SDLInput["profiles"]["compute"]>[string];
   }
   if (Object.keys(compute).length === 0) {
     compute["web"] = {
@@ -149,7 +149,7 @@ function buildSdl(input: { gpu?: Record<string, GpuEntry[]> }): SDLInput {
         memory: { size: "512Mi" },
         storage: { size: "1Gi" }
       }
-    } as SDLInput["profiles"]["compute"][string];
+    } as NonNullable<SDLInput["profiles"]["compute"]>[string];
   }
 
   return {

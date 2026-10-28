@@ -7,6 +7,8 @@ import { describe, expect, it } from "vitest";
 import type { SdlManifest } from "@src/deployment/services/sdl/sdl.service";
 import { resourceChangeOf, volumeSizeOf } from "./lease-resize-plan";
 
+type SdlWithServices = SDLInput & { services: NonNullable<SDLInput["services"]>; profiles: { compute: NonNullable<SDLInput["profiles"]["compute"]> } };
+
 describe(resourceChangeOf.name, () => {
   const GI = 1024n ** 3n;
   const VOLUME_REF = { owner: "akash1owner", dseq: 1200n, gseq: 1, name: "pg-data" };
@@ -16,10 +18,10 @@ describe(resourceChangeOf.name, () => {
   });
 
   it.each([
-    { change: "cpu", apply: (input: SDLInput) => (input.profiles.compute.web.resources.cpu.units = 4) },
-    { change: "memory", apply: (input: SDLInput) => (input.profiles.compute.web.resources.memory.size = "4096Mi") },
-    { change: "ephemeral storage", apply: (input: SDLInput) => (input.profiles.compute.web.resources.storage = [{ size: "8192Mi" }]) },
-    { change: "replica count", apply: (input: SDLInput) => (input.deployment.web.dcloud.count = 3) }
+    { change: "cpu", apply: (input: SdlWithServices) => (input.profiles.compute.web.resources.cpu.units = 4) },
+    { change: "memory", apply: (input: SdlWithServices) => (input.profiles.compute.web.resources.memory.size = "4096Mi") },
+    { change: "ephemeral storage", apply: (input: SdlWithServices) => (input.profiles.compute.web.resources.storage = [{ size: "8192Mi" }]) },
+    { change: "replica count", apply: (input: SdlWithServices) => (input.deployment.web.dcloud.count = 3) }
   ])("plans a resize of the group to the SDL's units when it changes its $change", ({ apply }) => {
     const resized = sdl();
     apply(resized);
@@ -79,7 +81,7 @@ describe(resourceChangeOf.name, () => {
   it.each([
     {
       reason: "it adds or removes a compute profile",
-      apply: (input: SDLInput) => {
+      apply: (input: SdlWithServices) => {
         input.services.worker = { image: "ghcr.io/example/worker:1.0.0" };
         input.profiles.compute.worker = { resources: { cpu: { units: 1 }, memory: { size: "512Mi" }, storage: [{ size: "1Gi" }] } };
         input.profiles.placement.dcloud.pricing.worker = { denom: "uact", amount: 1000 };
@@ -88,23 +90,23 @@ describe(resourceChangeOf.name, () => {
     },
     {
       reason: "it adds or removes GPUs",
-      apply: (input: SDLInput) => (input.profiles.compute.web.resources.gpu = { units: 1, attributes: { vendor: { nvidia: [{ model: "h100" }] } } })
+      apply: (input: SdlWithServices) => (input.profiles.compute.web.resources.gpu = { units: 1, attributes: { vendor: { nvidia: [{ model: "h100" }] } } })
     },
     {
       reason: "it adds, removes or changes a globally exposed port",
-      apply: (input: SDLInput) => input.services.web.expose!.push({ port: 9000, as: 9000, to: [{ global: true }] })
+      apply: (input: SdlWithServices) => input.services.web.expose!.push({ port: 9000, as: 9000, to: [{ global: true }] })
     },
     {
       reason: "it adds or removes a storage volume",
-      apply: (input: SDLInput) => (input.profiles.compute.web.resources.storage = [{ size: "4096Mi" }, { name: "data", size: "1Gi" }])
+      apply: (input: SdlWithServices) => (input.profiles.compute.web.resources.storage = [{ size: "4096Mi" }, { name: "data", size: "1Gi" }])
     },
     {
       reason: "it changes the CPU architecture or another CPU attribute",
-      apply: (input: SDLInput) => (input.profiles.compute.web.resources.cpu = { units: 4, attributes: { arch: "arm64" } })
+      apply: (input: SdlWithServices) => (input.profiles.compute.web.resources.cpu = { units: 4, attributes: { arch: "arm64" } })
     },
     {
       reason: "it changes the currency its price is set in",
-      apply: (input: SDLInput) => {
+      apply: (input: SdlWithServices) => {
         input.profiles.compute.web.resources.cpu.units = 4;
         input.profiles.placement.dcloud.pricing.web = { denom: "uakt", amount: 10000 };
       }
@@ -299,7 +301,7 @@ describe(resourceChangeOf.name, () => {
     };
   }
 
-  function sdlWithWorkerBesideWeb(): SDLInput {
+  function sdlWithWorkerBesideWeb(): SdlWithServices {
     const input = sdl();
     input.services.worker = { image: "ghcr.io/example/worker:1.0.0" };
     input.profiles.compute.worker = { resources: { cpu: { units: 1 }, memory: { size: "512Mi" }, storage: [{ size: "1Gi" }] } };
@@ -309,7 +311,7 @@ describe(resourceChangeOf.name, () => {
     return input;
   }
 
-  function sdlWithGpu(model: string): SDLInput {
+  function sdlWithGpu(model: string): SdlWithServices {
     const input = sdl();
     input.profiles.compute.web.resources.gpu = { units: 1, attributes: { vendor: { nvidia: [{ model }] } } };
 
@@ -324,7 +326,7 @@ describe(resourceChangeOf.name, () => {
     return (result.value as SdlManifest).groupSpecs;
   }
 
-  function sdl(): SDLInput {
+  function sdl(): SdlWithServices {
     return {
       version: "2.0",
       services: {
@@ -342,7 +344,7 @@ describe(resourceChangeOf.name, () => {
     };
   }
 
-  function sdlWithWorkerIn(placement: string): SDLInput {
+  function sdlWithWorkerIn(placement: string): SdlWithServices {
     const input = sdl();
     input.services.worker = { image: "ghcr.io/example/worker:1.0.0" };
     input.profiles.compute.worker = { resources: { cpu: { units: 1 }, memory: { size: "512Mi" }, storage: [{ size: "1Gi" }] } };
@@ -352,7 +354,7 @@ describe(resourceChangeOf.name, () => {
     return input;
   }
 
-  function sdlWithPersistentStorage(size: string, storageClass = "beta2"): SDLInput {
+  function sdlWithPersistentStorage(size: string, storageClass = "beta2"): SdlWithServices {
     const input = sdl();
     input.services.web.params = { storage: { data: { mount: "/data" } } };
     input.profiles.compute.web.resources.storage = [{ size: "4096Mi" }, { name: "data", size, attributes: { persistent: true, class: storageClass } }];
