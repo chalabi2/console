@@ -156,8 +156,16 @@ describe(VolumesPage.name, () => {
     expect(screen.queryByRole("dialog", { name: "Move a volume" })).not.toBeInTheDocument();
   });
 
+  it("offers to move a bucket its lease holds", async () => {
+    const bucket: OwnedVolume = { ...AVAILABLE, access: "bucket" };
+    const { MoveVolumeDialog } = setup({ volumes: [bucket] });
+
+    await userEvent.click(screen.getByRole("button", { name: "Move data" }));
+
+    expect(MoveVolumeDialog.mock.lastCall?.[0]).toEqual(expect.objectContaining({ volume: bucket }));
+  });
+
   it.each([
-    { case: "a bucket", volume: { ...AVAILABLE, access: "bucket" as const } },
     { case: "a closing volume", volume: { ...AVAILABLE, state: "closing" as const } },
     { case: "a volume already moving", volume: { ...AVAILABLE, state: "moving" as const } },
     { case: "a volume its provider is reclaiming", volume: { ...AVAILABLE, state: "reclaiming" as const } },
@@ -197,11 +205,17 @@ describe(VolumesPage.name, () => {
     expect(screen.queryByRole("dialog", { name: "Choose a provider" })).not.toBeInTheDocument();
   });
 
-  it.each([
-    { case: "a bucket no lease holds", volume: { ...AVAILABLE, access: "bucket" as const, state: "unleased" as const } },
-    { case: "a disk its lease holds", volume: AVAILABLE }
-  ])("offers no provider choice for $case", ({ volume }) => {
-    setup({ volumes: [volume] });
+  it("offers to choose a provider for a bucket no lease holds", async () => {
+    const unleased: OwnedVolume = { ...AVAILABLE, access: "bucket", state: "unleased", provider: undefined, pricePerBlock: undefined };
+    const { ChooseVolumeProviderDialog } = setup({ volumes: [unleased] });
+
+    await userEvent.click(screen.getByRole("button", { name: "Choose a provider for data" }));
+
+    expect(ChooseVolumeProviderDialog.mock.lastCall?.[0]).toEqual(expect.objectContaining({ volume: unleased }));
+  });
+
+  it("offers no provider choice for a volume its lease holds", () => {
+    setup({ volumes: [AVAILABLE] });
 
     expect(screen.queryByRole("button", { name: "Choose a provider for data" })).not.toBeInTheDocument();
   });
@@ -216,10 +230,15 @@ describe(VolumesPage.name, () => {
     );
   });
 
+  it("reads where a moved bucket stands on the provider that won it", () => {
+    const { useVolumeStatus } = setup({ volumes: [{ ...AVAILABLE, access: "bucket", gseq: 1, oseq: 2 }] });
+
+    expect(useVolumeStatus).toHaveBeenCalledWith(expect.objectContaining({ dseq: "100", gseq: 1, oseq: 2 }), { enabled: true });
+  });
+
   it.each([
     { case: "a disk never moved", volume: { ...AVAILABLE, gseq: 1, oseq: 1 } },
     { case: "a disk whose lease sequence is unknown", volume: AVAILABLE },
-    { case: "a moved bucket", volume: { ...AVAILABLE, access: "bucket" as const, gseq: 1, oseq: 2 } },
     { case: "a moved disk being moved again", volume: { ...AVAILABLE, state: "moving" as const, gseq: 1, oseq: 2 } }
   ])("reads nothing from the provider for $case", ({ volume }) => {
     const { useVolumeStatus } = setup({ volumes: [volume] });
@@ -239,6 +258,16 @@ describe(VolumesPage.name, () => {
     expect(screen.getByText("Copying in")).toBeInTheDocument();
     expect(screen.getByText("From its previous provider")).toBeInTheDocument();
     expect(screen.queryByText("Available")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Move data" })).not.toBeInTheDocument();
+  });
+
+  it("shows a moved bucket as copying in while its objects arrive, and offers no move", () => {
+    setup({
+      volumes: [{ ...AVAILABLE, access: "bucket", gseq: 1, oseq: 2 }],
+      volumeStatus: { phase: "Importing", size_bytes: 1, import_from: "akash1previous" }
+    });
+
+    expect(screen.getByText("Copying in")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Move data" })).not.toBeInTheDocument();
   });
 

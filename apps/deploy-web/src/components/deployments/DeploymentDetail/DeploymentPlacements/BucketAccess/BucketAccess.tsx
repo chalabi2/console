@@ -1,6 +1,6 @@
 "use client";
 import type { FC } from "react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Button,
@@ -24,6 +24,7 @@ import { Plus, RefreshCw } from "lucide-react";
 import { CopyTextToClipboardButton } from "@src/components/shared/CopyTextToClipboardButton";
 import { BUCKET_KEYS_SCOPE, BUCKET_SCOPE, canRequestScope, useProviderCredentials } from "@src/hooks/useProviderCredentials/useProviderCredentials";
 import { useBucketInfo, useRevokeBucketKey } from "@src/queries/useBucketQuery";
+import { IMPORTING_PHASE, IMPORTING_POLL_INTERVAL, useVolumeStatus } from "@src/queries/useVolumeStatusQuery";
 import type { ProviderIdentity } from "@src/services/provider-proxy/provider-proxy.service";
 import type { BucketInfo, BucketKeyInfo } from "@src/types/bucket";
 import type { LeaseDto } from "@src/types/deployment";
@@ -31,7 +32,7 @@ import { bucketRefusalOf, isBucketBeingProvisioned } from "@src/utils/bucketUtil
 import { formatByteSize } from "@src/utils/unitUtils";
 import { CreateBucketKeyDialog } from "./CreateBucketKeyDialog";
 
-export const DEPENDENCIES = { useBucketInfo, useRevokeBucketKey, useProviderCredentials, CopyTextToClipboardButton, CreateBucketKeyDialog };
+export const DEPENDENCIES = { useBucketInfo, useRevokeBucketKey, useProviderCredentials, useVolumeStatus, CopyTextToClipboardButton, CreateBucketKeyDialog };
 
 const ACCESS_LABELS: Record<BucketKeyInfo["access"], string> = { readwrite: "Read and write", read: "Read only" };
 
@@ -47,7 +48,19 @@ export const BucketAccess: FC<Props> = ({ lease, provider, dependencies: d = DEP
   const { tokenMode } = d.useProviderCredentials();
   const canUseBucket = canRequestScope(tokenMode, BUCKET_ACCESS_SCOPE);
   const bucketLease = { provider, dseq: lease.dseq, gseq: lease.gseq, oseq: lease.oseq };
-  const info = d.useBucketInfo(bucketLease, { enabled: canUseBucket });
+  const { data: status } = d.useVolumeStatus(bucketLease, { enabled: canUseBucket && wasMovedHere(lease) });
+  const isCopyingIn = status?.phase === IMPORTING_PHASE;
+  const info = d.useBucketInfo(bucketLease, { enabled: canUseBucket, refetchInterval: isCopyingIn ? IMPORTING_POLL_INTERVAL : false });
+  const wasCopyingIn = useRef(isCopyingIn);
+  const refetchInfo = info.refetch;
+
+  useEffect(
+    function readTheBucketAgainOnceItsObjectsArrived() {
+      if (wasCopyingIn.current && !isCopyingIn) refetchInfo();
+      wasCopyingIn.current = isCopyingIn;
+    },
+    [isCopyingIn, refetchInfo]
+  );
 
   return (
     <section aria-label="S3 bucket" className="space-y-4 p-6">
@@ -59,7 +72,7 @@ export const BucketAccess: FC<Props> = ({ lease, provider, dependencies: d = DEP
           <Skeleton className="h-24 w-full" />
         </div>
       )}
-      {canUseBucket && info.data && <BucketDetails info={info.data} lease={lease} provider={provider} dependencies={d} />}
+      {canUseBucket && info.data && <BucketDetails info={info.data} lease={lease} provider={provider} isCopyingIn={isCopyingIn} dependencies={d} />}
     </section>
   );
 };
@@ -76,13 +89,15 @@ const BucketUnreachable: FC<{ error: unknown; onRetry: () => void }> = ({ error,
   </div>
 );
 
-const BucketDetails: FC<{ info: BucketInfo; lease: LeaseDto; provider?: ProviderIdentity; dependencies: typeof DEPENDENCIES }> = ({
+const BucketDetails: FC<{ info: BucketInfo; lease: LeaseDto; provider?: ProviderIdentity; isCopyingIn: boolean; dependencies: typeof DEPENDENCIES }> = ({
   info,
   lease,
   provider,
+  isCopyingIn,
   dependencies: d
 }) => {
-  const canCreateKeys = lease.state === "active";
+  const isLeaseActive = lease.state === "active";
+  const canCreateKeys = isLeaseActive && !isCopyingIn;
   const bucketLease = { provider, dseq: lease.dseq, gseq: lease.gseq, oseq: lease.oseq };
   const [isCreatingKey, setIsCreatingKey] = useState(false);
   const [keyToRevoke, setKeyToRevoke] = useState<string | null>(null);
@@ -110,7 +125,12 @@ const BucketDetails: FC<{ info: BucketInfo; lease: LeaseDto; provider?: Provider
           Create access key
         </Button>
       </div>
-      {!canCreateKeys && (
+      {isLeaseActive && isCopyingIn && (
+        <p className="text-sm text-muted-foreground">
+          Its objects are being copied in from its previous provider. Access keys can be created once they have all arrived.
+        </p>
+      )}
+      {!isLeaseActive && (
         <p className="text-sm text-muted-foreground">
           New access keys can be created while the bucket&apos;s lease is active. Existing ones can still be revoked.
         </p>
@@ -154,6 +174,11 @@ const BucketDetails: FC<{ info: BucketInfo; lease: LeaseDto; provider?: Provider
     </>
   );
 };
+
+/** A bucket's order re-lists under the next sequence each time a move or an eviction ends its lease. */
+function wasMovedHere(lease: LeaseDto): boolean {
+  return lease.oseq > 1;
+}
 
 const ConnectionRow: FC<{ label: string; value: string; dependencies: typeof DEPENDENCIES }> = ({ label, value, dependencies: d }) => (
   <>

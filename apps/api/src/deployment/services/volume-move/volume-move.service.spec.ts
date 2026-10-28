@@ -49,14 +49,14 @@ describe(VolumeMoveService.name, () => {
     expect(signerService.executeDecodedTxByUserWallet).not.toHaveBeenCalled();
   });
 
-  it("refuses a bucket, whose objects do not move with its lease", async () => {
-    const { service, signerService } = setup({ access: "bucket" });
+  it("moves a bucket the same way, closing its active lease", async () => {
+    const { service, signerService, wallet, rpcMessageService, activeLease } = setup({ access: "bucket" });
 
-    await expect(service.moveByUserIdAndDseq(ACTING_USER, DSEQ)).rejects.toMatchObject({
-      status: 400,
-      message: "A bucket's objects do not move with it, so a bucket cannot be moved"
+    await service.moveByUserIdAndDseq(ACTING_USER, DSEQ);
+
+    expect(signerService.executeDecodedTxByUserWallet).toHaveBeenCalledWith(wallet, [rpcMessageService.getCloseLeaseMsg(activeLease.id)], {
+      actingUserId: ACTING_USER
     });
-    expect(signerService.executeDecodedTxByUserWallet).not.toHaveBeenCalled();
   });
 
   it("refuses a volume whose lease is already being reclaimed", async () => {

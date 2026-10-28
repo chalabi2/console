@@ -6,7 +6,7 @@ import { RpcMessageService } from "@src/billing/services/rpc-message-service/rpc
 import { WalletReaderService } from "@src/billing/services/wallet-reader/wallet-reader.service";
 import { DeploymentReaderService } from "@src/deployment/services/deployment-reader/deployment-reader.service";
 
-/** Moves a volume to another provider by closing its lease, which the chain reclaims through its window and then lists for new bids, rather than ending the volume. */
+/** Moves a volume, disk or bucket, to another provider by closing its lease, which the chain reclaims through its window and then lists for new bids, rather than ending the volume. */
 @singleton()
 export class VolumeMoveService {
   constructor(
@@ -24,7 +24,6 @@ export class VolumeMoveService {
     const group = groups.find(candidate => candidate.group_spec.volume);
 
     if (!group?.group_spec.volume) throw createError(400, "Only a volume can be moved to another provider");
-    if (group.group_spec.volume.access === "bucket") throw createError(400, "A bucket's objects do not move with it, so a bucket cannot be moved");
 
     const lease = deployment.leases.find(candidate => candidate.id.gseq === group.id.gseq && candidate.state === "active");
 

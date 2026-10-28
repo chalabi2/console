@@ -30,6 +30,7 @@ type Props = {
 export const MoveVolumeDialog: FC<Props> = ({ volume, providerName, onClose, dependencies: d = DEPENDENCIES }) => {
   const descriptionId = useId();
   const move = d.useMoveVolume();
+  const isBucket = volume.access === "bucket";
 
   const moveTheVolume = () => {
     move.mutate({ dseq: volume.dseq }, { onSuccess: onClose });
@@ -41,11 +42,18 @@ export const MoveVolumeDialog: FC<Props> = ({ volume, providerName, onClose, dep
         <DialogV2Header>
           <DialogV2Title>Move {volume.name} to another provider</DialogV2Title>
           <DialogV2Description id={descriptionId}>
-            Its lease with {providerName} ends after its reclamation window. Providers then bid to take it: choose one here, and it copies the volume&apos;s
-            data from {providerName} before anything can mount it.
+            {isBucket
+              ? `Its lease with ${providerName} ends after its reclamation window, and its access keys stop working then. Providers then bid to take it: choose one here, and it copies the bucket's objects from ${providerName} before it gives out new keys.`
+              : `Its lease with ${providerName} ends after its reclamation window. Providers then bid to take it: choose one here, and it copies the volume's data from ${providerName} before anything can mount it.`}
           </DialogV2Description>
         </DialogV2Header>
         <DialogV2Body className="flex flex-col gap-3">
+          {isBucket && (
+            <Alert>
+              The bucket gets a new endpoint and new access keys at its new provider. Deployments connected to it lose access when the lease ends, so connect
+              them again once the move is done.
+            </Alert>
+          )}
           {volume.mountedBy && (
             <Alert>
               Deployment {volume.mountedBy} mounts it. It keeps running until the lease ends and then stops, so deploy it again on the new provider once the
@@ -59,7 +67,7 @@ export const MoveVolumeDialog: FC<Props> = ({ volume, providerName, onClose, dep
             Cancel
           </Button>
           <LoadingButton type="button" loading={move.isPending} onClick={moveTheVolume}>
-            Move volume
+            {isBucket ? "Move bucket" : "Move volume"}
           </LoadingButton>
         </DialogV2Footer>
       </DialogV2Content>

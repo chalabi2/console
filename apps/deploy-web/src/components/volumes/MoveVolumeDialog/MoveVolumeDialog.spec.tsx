@@ -47,6 +47,38 @@ describe(MoveVolumeDialog.name, () => {
     );
   });
 
+  it("explains a bucket's move, whose keys stop with its lease", () => {
+    setup({ volume: { ...VOLUME, name: "media", access: "bucket" } });
+
+    expect(screen.getByRole("dialog", { name: "Move media to another provider" })).toHaveAccessibleDescription(
+      "Its lease with Meridian Cloud ends after its reclamation window, and its access keys stop working then. Providers then bid to take it: choose one here, and it copies the bucket's objects from Meridian Cloud before it gives out new keys."
+    );
+  });
+
+  it("warns that a moved bucket answers at a new endpoint with new keys", () => {
+    setup({ volume: { ...VOLUME, access: "bucket" } });
+
+    expect(
+      screen.getByText(
+        "The bucket gets a new endpoint and new access keys at its new provider. Deployments connected to it lose access when the lease ends, so connect them again once the move is done."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("starts the move of a bucket it names", async () => {
+    const { mutate } = setup({ volume: { ...VOLUME, access: "bucket" } });
+
+    await userEvent.click(screen.getByRole("button", { name: "Move bucket" }));
+
+    expect(mutate).toHaveBeenCalledWith({ dseq: "100" }, expect.anything());
+  });
+
+  it("warns of no new endpoint for a disk", () => {
+    setup({});
+
+    expect(screen.queryByText(/new endpoint/)).not.toBeInTheDocument();
+  });
+
   it("warns that the deployment mounting the volume stops when its lease ends", () => {
     setup({ volume: { ...VOLUME, state: "mounted", mountedBy: "200" } });
 

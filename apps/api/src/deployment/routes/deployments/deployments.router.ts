@@ -321,7 +321,7 @@ const moveVolumeRoute = createRoute({
   path: "/v1/deployments/{dseq}/move",
   summary: "Move a volume to another provider",
   description:
-    "Closes the volume's lease to move it rather than end it. The lease is kept through its reclamation window, while deployments mounting the volume keep running. Then it closes, those deployments are detached, and the volume is listed for new bids. Lease one of them to finish the move: the new provider copies the volume's data from the old one before anything can mount it. A bucket cannot be moved, because its objects do not move with it.",
+    "Closes the volume's lease to move it rather than end it. The lease is kept through its reclamation window, while deployments mounting the volume keep running. Then it closes, those deployments are detached, and the volume is listed for new bids. Lease one of them to finish the move: the new provider copies the volume's data from the old one before anything can mount it. A bucket moves the same way: its keys stop working when its lease closes, and the new provider copies its objects before giving out new keys at its own endpoint.",
   operationId: "moveVolume",
   tags: ["Deployments"],
   security: SECURITY_BEARER_OR_API_KEY,

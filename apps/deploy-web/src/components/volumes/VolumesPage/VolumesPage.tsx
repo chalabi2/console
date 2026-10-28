@@ -152,11 +152,10 @@ const VolumeRow: FC<{
   dependencies: typeof DEPENDENCIES;
 }> = ({ volume, provider, onMove, onChooseProvider, dependencies: d }) => {
   const storageType = persistentStorageTypes.find(type => type.className === volume.storageClass)?.name;
-  const isDisk = volume.access === "mount";
   const isLive = volume.state === "available" || volume.state === "mounted";
   const { data: status } = d.useVolumeStatus(
     { provider: provider && { owner: provider.owner, hostUri: provider.hostUri }, dseq: volume.dseq, gseq: volume.gseq ?? 1, oseq: volume.oseq ?? 1 },
-    { enabled: isDisk && isLive && wasMoved(volume) }
+    { enabled: isLive && wasMoved(volume) }
   );
   const isCopyingIn = status?.phase === IMPORTING_PHASE;
 
@@ -186,12 +185,12 @@ const VolumeRow: FC<{
         )}
       </TableCell>
       <TableCell className="text-right">
-        {isDisk && isLive && !isCopyingIn && (
+        {isLive && !isCopyingIn && (
           <Button variant="outline" size="sm" onClick={onMove} aria-label={`Move ${volume.name}`}>
             Move
           </Button>
         )}
-        {isDisk && volume.state === "unleased" && (
+        {volume.state === "unleased" && (
           <Button size="sm" onClick={onChooseProvider} aria-label={`Choose a provider for ${volume.name}`}>
             Choose provider
           </Button>

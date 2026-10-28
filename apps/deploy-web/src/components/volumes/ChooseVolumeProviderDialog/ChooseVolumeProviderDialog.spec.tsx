@@ -117,6 +117,23 @@ describe(ChooseVolumeProviderDialog.name, () => {
     );
   });
 
+  it("explains where a bucket's objects come from, and its new keys", () => {
+    setup({ volume: { ...VOLUME, name: "media", access: "bucket" } });
+
+    expect(screen.getByRole("dialog", { name: "Choose a provider for media" })).toHaveAccessibleDescription(
+      "Its last lease has ended. The provider you lease it from now copies its objects from the previous one, then gives out new access keys from the bucket's page."
+    );
+  });
+
+  it("leases a bucket from the provider chosen", async () => {
+    const { mutate } = setup({ volume: { ...VOLUME, access: "bucket" }, bids: [MERIDIAN] });
+
+    await userEvent.click(screen.getByRole("radio", { name: /akash1meridian/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Lease bucket" }));
+
+    expect(mutate).toHaveBeenCalledWith({ leases: [{ dseq: "100", gseq: 1, oseq: 2, provider: "akash1meridian" }] }, expect.anything());
+  });
+
   it("says why the lease was refused", () => {
     setup({ mutation: { isError: true, error: new ApiError(502, { message: "The provider could not be reached" }, "POST → 502") } });
 
@@ -156,6 +173,7 @@ describe(ChooseVolumeProviderDialog.name, () => {
   });
 
   function setup(input: {
+    volume?: OwnedVolume;
     bids?: VolumeOrderBid[];
     providers?: ApiProviderList[];
     hasWaited?: boolean;
@@ -181,7 +199,7 @@ describe(ChooseVolumeProviderDialog.name, () => {
       useHasWaited
     });
 
-    render(<ChooseVolumeProviderDialog volume={VOLUME} onClose={onClose} dependencies={dependencies} />);
+    render(<ChooseVolumeProviderDialog volume={input.volume ?? VOLUME} onClose={onClose} dependencies={dependencies} />);
 
     return { mutate, onClose, useVolumeBids, useProvidersByAddresses, useHasWaited, PricePerTimeUnit: dependencies.PricePerTimeUnit };
   }

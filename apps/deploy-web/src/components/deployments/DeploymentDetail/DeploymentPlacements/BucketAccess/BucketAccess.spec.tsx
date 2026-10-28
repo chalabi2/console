@@ -6,6 +6,7 @@ import { mock } from "vitest-mock-extended";
 import type { UseProviderCredentialsResult } from "@src/hooks/useProviderCredentials/useProviderCredentials";
 import type { BucketInfo } from "@src/types/bucket";
 import type { LeaseDto } from "@src/types/deployment";
+import type { VolumeStatus } from "@src/types/volumeStatus";
 import { BucketAccess, DEPENDENCIES } from "./BucketAccess";
 
 import { act, render, screen, within } from "@testing-library/react";
@@ -29,7 +30,53 @@ describe(BucketAccess.name, () => {
   it("reads the bucket of the lease from its provider", () => {
     const { useBucketInfo } = setup({});
 
-    expect(useBucketInfo).toHaveBeenCalledWith({ provider: PROVIDER, dseq: "100", gseq: 1, oseq: 1 }, { enabled: true });
+    expect(useBucketInfo).toHaveBeenCalledWith({ provider: PROVIDER, dseq: "100", gseq: 1, oseq: 1 }, { enabled: true, refetchInterval: false });
+  });
+
+  it("reads where a moved bucket stands on the provider that won it", () => {
+    const { useVolumeStatus } = setup({ oseq: 2 });
+
+    expect(useVolumeStatus).toHaveBeenCalledWith({ provider: PROVIDER, dseq: "100", gseq: 1, oseq: 2 }, { enabled: true });
+  });
+
+  it("reads nothing about a move for a bucket never moved", () => {
+    const { useVolumeStatus } = setup({});
+
+    expect(useVolumeStatus).toHaveBeenCalledWith(expect.anything(), { enabled: false });
+  });
+
+  it("creates no keys while a moved bucket's objects are copied in, and says so", () => {
+    setup({ info: INFO, oseq: 2, volumeStatus: { phase: "Importing", size_bytes: 1, import_from: "akash1previous" } });
+
+    expect(screen.getByRole("button", { name: "Create access key" })).toBeDisabled();
+    expect(
+      screen.getByText("Its objects are being copied in from its previous provider. Access keys can be created once they have all arrived.")
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/while the bucket's lease is active/)).not.toBeInTheDocument();
+  });
+
+  it("reads the bucket again and again while its objects are copied in", () => {
+    const { useBucketInfo } = setup({ info: INFO, oseq: 2, volumeStatus: { phase: "Importing", size_bytes: 1 } });
+
+    expect(useBucketInfo).toHaveBeenCalledWith(expect.anything(), { enabled: true, refetchInterval: 5000 });
+  });
+
+  it("reads the bucket once more when its objects have arrived, and creates keys again", () => {
+    const { refetch, showStatus } = setup({ info: INFO, oseq: 2, volumeStatus: { phase: "Importing", size_bytes: 1 } });
+    expect(refetch).not.toHaveBeenCalled();
+
+    showStatus({ phase: "Provisioned", size_bytes: 1 });
+
+    expect(refetch).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Create access key" })).toBeEnabled();
+    expect(screen.queryByText(/being copied in/)).not.toBeInTheDocument();
+  });
+
+  it("reads the bucket no more often once a moved bucket's objects are all there", () => {
+    const { useBucketInfo, refetch } = setup({ info: INFO, oseq: 2, volumeStatus: { phase: "Provisioned", size_bytes: 1 } });
+
+    expect(useBucketInfo).toHaveBeenCalledWith(expect.anything(), { enabled: true, refetchInterval: false });
+    expect(refetch).not.toHaveBeenCalled();
   });
 
   it("shows where the bucket is and how much of it is used", () => {
@@ -192,10 +239,11 @@ describe(BucketAccess.name, () => {
   });
 
   it.each(["view-only", "read-only"] as const)("tells a %s role it cannot use the bucket, and reads nothing", tokenMode => {
-    const { useBucketInfo } = setup({ info: INFO, tokenMode });
+    const { useBucketInfo, useVolumeStatus } = setup({ info: INFO, tokenMode, oseq: 2 });
 
     expect(screen.getByText("Your role cannot see or change this bucket's access keys.")).toBeInTheDocument();
-    expect(useBucketInfo).toHaveBeenCalledWith(expect.anything(), { enabled: false });
+    expect(useBucketInfo).toHaveBeenCalledWith(expect.anything(), { enabled: false, refetchInterval: false });
+    expect(useVolumeStatus).toHaveBeenCalledWith(expect.anything(), { enabled: false });
     expect(screen.queryByText("assets-0123")).not.toBeInTheDocument();
     expect(screen.queryByRole("status", { name: "Loading the bucket" })).not.toBeInTheDocument();
     expect(screen.queryByText(/Couldn't reach/)).not.toBeInTheDocument();
@@ -212,6 +260,8 @@ describe(BucketAccess.name, () => {
     info?: BucketInfo;
     infoError?: Error;
     leaseState?: string;
+    oseq?: number;
+    volumeStatus?: VolumeStatus;
     tokenMode?: UseProviderCredentialsResult["tokenMode"];
     revocation?: { isPending?: boolean; isError?: boolean; error?: Error };
   }) {
@@ -232,13 +282,36 @@ describe(BucketAccess.name, () => {
       mock<UseMutationResult<void, Error, string>>({ mutate, ...revocationState })
     );
     const useProviderCredentials = () => mock<UseProviderCredentialsResult>({ tokenMode: input.tokenMode ?? "shared" });
+    let volumeStatus = input.volumeStatus;
+    const useVolumeStatus = vi.fn((..._args: Parameters<typeof DEPENDENCIES.useVolumeStatus>) =>
+      mock<UseQueryResult<VolumeStatus, Error>>({ data: volumeStatus })
+    );
     const CreateBucketKeyDialog = vi.fn<typeof DEPENDENCIES.CreateBucketKeyDialog>(() => <div role="dialog" aria-label="Create an access key" />);
-    const dependencies = MockComponents(DEPENDENCIES, { useBucketInfo, useRevokeBucketKey, useProviderCredentials, CreateBucketKeyDialog });
-    const lease = mock<LeaseDto>({ dseq: "100", gseq: 1, oseq: 1, state: input.leaseState ?? "active" });
+    const dependencies = MockComponents(DEPENDENCIES, {
+      useBucketInfo,
+      useRevokeBucketKey,
+      useProviderCredentials,
+      useVolumeStatus: useVolumeStatus as typeof DEPENDENCIES.useVolumeStatus,
+      CreateBucketKeyDialog
+    });
+    const lease = mock<LeaseDto>({ dseq: "100", gseq: 1, oseq: input.oseq ?? 1, state: input.leaseState ?? "active" });
 
-    render(<BucketAccess lease={lease} provider={PROVIDER} dependencies={dependencies} />);
+    const view = render(<BucketAccess lease={lease} provider={PROVIDER} dependencies={dependencies} />);
 
-    return { useBucketInfo, refetch, mutate, CreateBucketKeyDialog, CopyTextToClipboardButton: dependencies.CopyTextToClipboardButton };
+    const showStatus = (next: VolumeStatus) => {
+      volumeStatus = next;
+      view.rerender(<BucketAccess lease={lease} provider={PROVIDER} dependencies={dependencies} />);
+    };
+
+    return {
+      useBucketInfo,
+      useVolumeStatus,
+      refetch,
+      mutate,
+      showStatus,
+      CreateBucketKeyDialog,
+      CopyTextToClipboardButton: dependencies.CopyTextToClipboardButton
+    };
   }
 
   function providerError(status: number, data: string) {

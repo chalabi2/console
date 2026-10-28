@@ -72,14 +72,22 @@ describe("Moving a volume to another provider", () => {
       expect(signerService.executeDecodedTxByUserWallet).not.toHaveBeenCalled();
     });
 
-    it("refuses a bucket, whose objects would not follow it", async () => {
-      const { apiKey } = await setup({ access: "bucket" });
+    it("closes a bucket's lease the same way, for its objects to move with it", async () => {
+      const { apiKey, address, lease } = await setup({ access: "bucket" });
 
       const response = await move(apiKey);
 
-      expect(response.status).toBe(400);
-      expect(await response.json()).toMatchObject({ message: "A bucket's objects do not move with it, so a bucket cannot be moved" });
-      expect(signerService.executeDecodedTxByUserWallet).not.toHaveBeenCalled();
+      expect(response.status).toBe(200);
+      expect(signerService.executeDecodedTxByUserWallet).toHaveBeenCalledWith(
+        expect.objectContaining({ address }),
+        [
+          {
+            typeUrl: `/${MsgCloseLease.$type}`,
+            value: MsgCloseLease.fromPartial({ id: { ...lease.id, dseq: 5678n } })
+          }
+        ],
+        expect.anything()
+      );
     });
 
     it("refuses a volume already on its way out of its lease", async () => {

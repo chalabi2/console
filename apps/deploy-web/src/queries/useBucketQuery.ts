@@ -23,7 +23,11 @@ export interface BucketLease {
   oseq: number;
 }
 
-export function useBucketInfo(lease: BucketLease, options: { enabled?: boolean } = {}, dependencies: typeof DEPENDENCIES = DEPENDENCIES) {
+export function useBucketInfo(
+  lease: BucketLease,
+  options: { enabled?: boolean; refetchInterval?: number | false } = {},
+  dependencies: typeof DEPENDENCIES = DEPENDENCIES
+) {
   const { providerProxy } = dependencies.useServices();
   const tokenFor = useBucketToken(dependencies);
 
@@ -33,7 +37,8 @@ export function useBucketInfo(lease: BucketLease, options: { enabled?: boolean }
       const provider = providerOf(lease);
       return providerProxy.fetchBucketInfo({ ...lease, provider, ensureToken: () => tokenFor(provider, lease.dseq, BUCKET_SCOPE) });
     },
-    enabled: !!lease.provider && options.enabled !== false
+    enabled: !!lease.provider && options.enabled !== false,
+    refetchInterval: options.refetchInterval
   });
 }
 

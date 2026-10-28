@@ -43,6 +43,7 @@ export const ChooseVolumeProviderDialog: FC<Props> = ({ volume, onClose, depende
   const { data: providers } = d.useProvidersByAddresses(bids.map(bid => bid.provider));
   const hasWaitedForBids = d.useHasWaited(bids.length === 0, NO_BID_HINT_DELAY_MS);
   const chosen = bids.find(bid => bid.provider === provider);
+  const isBucket = volume.access === "bucket";
 
   const leaseTheVolume = () => {
     if (!chosen) return;
@@ -55,8 +56,9 @@ export const ChooseVolumeProviderDialog: FC<Props> = ({ volume, onClose, depende
         <DialogV2Header>
           <DialogV2Title>Choose a provider for {volume.name}</DialogV2Title>
           <DialogV2Description id={descriptionId}>
-            Its last lease has ended. The provider you lease it from now copies its data from the previous one before anything can mount it, and deployments
-            that mount it run there.
+            {isBucket
+              ? "Its last lease has ended. The provider you lease it from now copies its objects from the previous one, then gives out new access keys from the bucket's page."
+              : "Its last lease has ended. The provider you lease it from now copies its data from the previous one before anything can mount it, and deployments that mount it run there."}
           </DialogV2Description>
         </DialogV2Header>
         <DialogV2Body className="flex flex-col gap-4">
@@ -95,7 +97,7 @@ export const ChooseVolumeProviderDialog: FC<Props> = ({ volume, onClose, depende
             Cancel
           </Button>
           <LoadingButton type="button" loading={lease.isPending} onClick={leaseTheVolume} disabled={!chosen}>
-            Lease volume
+            {isBucket ? "Lease bucket" : "Lease volume"}
           </LoadingButton>
         </DialogV2Footer>
       </DialogV2Content>

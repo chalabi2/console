@@ -56,6 +56,12 @@ describe("useBucketQuery", () => {
 
       expect(providerProxy.fetchBucketInfo).not.toHaveBeenCalled();
     });
+
+    it("reads it again on the interval it is given", async () => {
+      const { providerProxy } = setup({ useHook: dependencies => useBucketInfo(LEASE, { refetchInterval: 10 }, dependencies) });
+
+      await vi.waitFor(() => expect(providerProxy.fetchBucketInfo.mock.calls.length).toBeGreaterThan(1));
+    });
   });
 
   describe(useCreateBucketKey.name, () => {
