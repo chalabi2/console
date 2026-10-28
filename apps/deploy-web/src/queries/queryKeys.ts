@@ -35,6 +35,7 @@ export class QueryKeys {
   static getDeploymentLeaseStatusesKey = (dseq: string) => ["LEASE_STATUS", dseq];
   static getLeaseStatusKey = (dseq: string, gseq: number, oseq: number) => [...QueryKeys.getDeploymentLeaseStatusesKey(dseq), gseq, oseq];
   static getBucketInfoKey = (dseq: string, gseq: number, oseq: number) => ["BUCKET_INFO", dseq, gseq, oseq];
+  static getVolumeStatusKey = (dseq: string, gseq: number, oseq: number) => ["VOLUME_STATUS", dseq, gseq, oseq];
   static getAllProviderSearchesKey = () => ["PROVIDER_SEARCH"];
   static getProviderSearchKey = (params: object) => [...QueryKeys.getAllProviderSearchesKey(), params];
   static getProviderLocationsKey = () => ["PROVIDER_LOCATIONS"];

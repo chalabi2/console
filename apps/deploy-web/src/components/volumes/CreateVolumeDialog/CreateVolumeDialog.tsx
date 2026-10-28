@@ -28,19 +28,16 @@ import {
 } from "@akashnetwork/ui/components";
 
 import { SELECT_TRUNCATE_VALUE } from "@src/components/deployments/ConfigureDeployment/ConfigurationPane/selectStyles";
-import { getProviderRegion } from "@src/components/deployments/DeploymentDetail/DeploymentPlacements/placementModel";
 import { PricePerTimeUnit } from "@src/components/shared/PricePerTimeUnit";
+import { VolumeBidOption } from "@src/components/volumes/VolumeBidOption/VolumeBidOption";
 import { useWallet } from "@src/context/WalletProvider";
 import { useHasWaited } from "@src/hooks/useHasWaited/useHasWaited";
 import { useProvidersByAddresses } from "@src/queries/useProvidersQuery";
 import type { PlacementType } from "@src/types";
-import type { ApiProviderList } from "@src/types/provider";
 import { persistentStorageTypes, storageUnits } from "@src/utils/akash/units";
-import { PRICE_DISPLAY_PRECISION, udenomToDenom } from "@src/utils/mathHelpers";
-import { providerDisplayName } from "@src/utils/providerUtils";
 import { defaultPricing } from "@src/utils/sdl/data";
 import { type VolumeAccess, volumeSdlOf } from "@src/utils/sdl/volumeSdl";
-import { useCreateVolume, type VolumeBid } from "./useCreateVolume";
+import { useCreateVolume } from "./useCreateVolume";
 
 export const DEPENDENCIES = { useCreateVolume, useWallet, useProvidersByAddresses, useHasWaited, NumberUnitInput, PricePerTimeUnit };
 
@@ -276,7 +273,7 @@ export const CreateVolumeDialog: FC<Props> = ({
               ) : (
                 <RadioGroup aria-label="Provider" value={provider} onValueChange={setProvider} className="flex flex-col gap-2">
                   {bids.map(bid => (
-                    <BidOption
+                    <VolumeBidOption
                       key={bid.provider}
                       id={`${descriptionId}-${bid.provider}`}
                       bid={bid}
@@ -320,25 +317,6 @@ const KindOption: FC<{ id: string; access: VolumeAccess; title: string; descript
       <span className="text-sm font-semibold">{title}</span>
       <span className="text-xs text-muted-foreground">{description}</span>
     </span>
-  </Label>
-);
-
-const BidOption: FC<{ id: string; bid: VolumeBid; provider?: ApiProviderList; dependencies: typeof DEPENDENCIES }> = ({
-  id,
-  bid,
-  provider,
-  dependencies: d
-}) => (
-  <Label
-    htmlFor={id}
-    className="flex cursor-pointer items-center gap-2.5 rounded-[10px] border border-border p-3 font-normal has-[[data-state=checked]]:border-foreground has-[[data-state=checked]]:bg-muted/40"
-  >
-    <RadioGroupItem id={id} value={bid.provider} className="shrink-0" />
-    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-      <span className="truncate text-sm font-semibold">{provider ? providerDisplayName(provider) : bid.provider}</span>
-      <span className="text-xs text-muted-foreground">{getProviderRegion(provider) ?? "Region unknown"}</span>
-    </span>
-    <d.PricePerTimeUnit className="text-sm" perBlockValue={udenomToDenom(bid.perBlockAmount, PRICE_DISPLAY_PRECISION)} denom={bid.denom} />
   </Label>
 );
 

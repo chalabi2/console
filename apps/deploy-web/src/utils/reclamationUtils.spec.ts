@@ -11,6 +11,7 @@ import {
   getReclamationDeadline,
   isClosedByOwner,
   isClosingVolume,
+  isMovingVolume,
   isProviderReclaimed,
   isReclaiming,
   parseReclamationWindowSeconds
@@ -221,6 +222,21 @@ describe("reclamationUtils", () => {
       { case: "says nothing of why it is reclaiming", lease: { state: "reclaiming" } }
     ])("does not read a lease that $case as a closing volume", ({ lease }) => {
       expect(isClosingVolume(createLease(lease))).toBe(false);
+    });
+  });
+
+  describe(isMovingVolume.name, () => {
+    it("reads a volume whose owner is moving it as moving while its reclamation window runs", () => {
+      expect(isMovingVolume(createLease({ state: "reclaiming", reclamation: { reason: "reason_volume_migrate" } }))).toBe(true);
+    });
+
+    it.each([
+      { case: "its provider is reclaiming", lease: { state: "reclaiming", reclamation: { reason: "reason_volume_evict" } } },
+      { case: "its owner is closing", lease: { state: "reclaiming", reclamation: { reason: "reason_volume_closed_retain" } } },
+      { case: "already finished moving", lease: { state: "closed", reclamation: { reason: "reason_volume_migrate" } } },
+      { case: "says nothing of why it is reclaiming", lease: { state: "reclaiming" } }
+    ])("does not read a lease that $case as a moving volume", ({ lease }) => {
+      expect(isMovingVolume(createLease(lease))).toBe(false);
     });
   });
 

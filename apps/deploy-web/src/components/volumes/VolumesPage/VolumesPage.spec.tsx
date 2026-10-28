@@ -3,6 +3,7 @@ import { mock } from "vitest-mock-extended";
 
 import type { OwnedVolume } from "@src/queries/useOwnedVolumes";
 import type { ApiProviderList } from "@src/types/provider";
+import type { VolumeStatus } from "@src/types/volumeStatus";
 import { PRICE_DISPLAY_PRECISION, udenomToDenom } from "@src/utils/mathHelpers";
 import { DEPENDENCIES, VolumesPage } from "./VolumesPage";
 
@@ -118,6 +119,136 @@ describe(VolumesPage.name, () => {
     expect(PricePerTimeUnit).not.toHaveBeenCalled();
   });
 
+  it("offers to move a disk its lease holds", async () => {
+    const { MoveVolumeDialog } = setup({
+      volumes: [AVAILABLE],
+      providers: [mock<ApiProviderList>({ owner: PROVIDER, organization: "Meridian Cloud", hostUri: "https://p.example:8443" })]
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Move data" }));
+
+    expect(MoveVolumeDialog.mock.lastCall?.[0]).toEqual(expect.objectContaining({ volume: AVAILABLE, providerName: "Meridian Cloud" }));
+  });
+
+  it("offers to move a disk a deployment mounts", () => {
+    setup({ volumes: [{ ...AVAILABLE, state: "mounted", mountedBy: "200" }] });
+
+    expect(screen.getByRole("button", { name: "Move data" })).toBeInTheDocument();
+  });
+
+  it("names the provider a disk moves from by its address until its details load", async () => {
+    const { MoveVolumeDialog } = setup({
+      volumes: [AVAILABLE],
+      providers: [mock<ApiProviderList>({ owner: "akash1someoneelse", organization: "Northwind", hostUri: "https://n.example" })]
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Move data" }));
+
+    expect(MoveVolumeDialog.mock.lastCall?.[0].providerName).toBe(PROVIDER);
+  });
+
+  it("closes the move dialog when it asks to", async () => {
+    const { MoveVolumeDialog } = setup({ volumes: [AVAILABLE] });
+    await userEvent.click(screen.getByRole("button", { name: "Move data" }));
+
+    act(() => MoveVolumeDialog.mock.lastCall?.[0].onClose());
+
+    expect(screen.queryByRole("dialog", { name: "Move a volume" })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { case: "a bucket", volume: { ...AVAILABLE, access: "bucket" as const } },
+    { case: "a closing volume", volume: { ...AVAILABLE, state: "closing" as const } },
+    { case: "a volume already moving", volume: { ...AVAILABLE, state: "moving" as const } },
+    { case: "a volume its provider is reclaiming", volume: { ...AVAILABLE, state: "reclaiming" as const } },
+    { case: "a volume no lease holds", volume: { ...AVAILABLE, state: "unleased" as const } }
+  ])("offers no move for $case", ({ volume }) => {
+    setup({ volumes: [volume] });
+
+    expect(screen.queryByRole("button", { name: "Move data" })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { case: "with time left in its window", countdown: "2 minutes", text: "Providers bid in 2 minutes" },
+    { case: "past its window", countdown: null, text: "Providers bid now" }
+  ])("marks a volume being moved, $case", ({ countdown, text }) => {
+    const { useCountdown } = setup({ volumes: [{ ...AVAILABLE, state: "moving", reclamationDeadline: DEADLINE }], countdown });
+
+    expect(useCountdown).toHaveBeenCalledWith(DEADLINE);
+    expect(screen.getByText("Moving")).toBeInTheDocument();
+    expect(screen.getByText(text)).toBeInTheDocument();
+  });
+
+  it("offers to choose a provider for a disk no lease holds", async () => {
+    const unleased: OwnedVolume = { ...AVAILABLE, state: "unleased", provider: undefined, pricePerBlock: undefined };
+    const { ChooseVolumeProviderDialog } = setup({ volumes: [unleased] });
+
+    await userEvent.click(screen.getByRole("button", { name: "Choose a provider for data" }));
+
+    expect(ChooseVolumeProviderDialog.mock.lastCall?.[0]).toEqual(expect.objectContaining({ volume: unleased }));
+  });
+
+  it("closes the provider dialog when it asks to", async () => {
+    const { ChooseVolumeProviderDialog } = setup({ volumes: [{ ...AVAILABLE, state: "unleased", provider: undefined }] });
+    await userEvent.click(screen.getByRole("button", { name: "Choose a provider for data" }));
+
+    act(() => ChooseVolumeProviderDialog.mock.lastCall?.[0].onClose());
+
+    expect(screen.queryByRole("dialog", { name: "Choose a provider" })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { case: "a bucket no lease holds", volume: { ...AVAILABLE, access: "bucket" as const, state: "unleased" as const } },
+    { case: "a disk its lease holds", volume: AVAILABLE }
+  ])("offers no provider choice for $case", ({ volume }) => {
+    setup({ volumes: [volume] });
+
+    expect(screen.queryByRole("button", { name: "Choose a provider for data" })).not.toBeInTheDocument();
+  });
+
+  it("reads where a moved disk stands on the provider that won it", () => {
+    const provider = mock<ApiProviderList>({ owner: PROVIDER, organization: "Meridian Cloud", hostUri: "https://p.example:8443" });
+    const { useVolumeStatus } = setup({ volumes: [{ ...AVAILABLE, gseq: 3, oseq: 2 }], providers: [provider] });
+
+    expect(useVolumeStatus).toHaveBeenCalledWith(
+      { provider: { owner: PROVIDER, hostUri: "https://p.example:8443" }, dseq: "100", gseq: 3, oseq: 2 },
+      { enabled: true }
+    );
+  });
+
+  it.each([
+    { case: "a disk never moved", volume: { ...AVAILABLE, gseq: 1, oseq: 1 } },
+    { case: "a disk whose lease sequence is unknown", volume: AVAILABLE },
+    { case: "a moved bucket", volume: { ...AVAILABLE, access: "bucket" as const, gseq: 1, oseq: 2 } },
+    { case: "a moved disk being moved again", volume: { ...AVAILABLE, state: "moving" as const, gseq: 1, oseq: 2 } }
+  ])("reads nothing from the provider for $case", ({ volume }) => {
+    const { useVolumeStatus } = setup({ volumes: [volume] });
+
+    expect(useVolumeStatus).toHaveBeenCalledWith(expect.anything(), { enabled: false });
+  });
+
+  it("asks a lookup with no provider while the provider's details load", () => {
+    const { useVolumeStatus } = setup({ volumes: [{ ...AVAILABLE, gseq: 1, oseq: 2 }] });
+
+    expect(useVolumeStatus.mock.lastCall?.[0].provider).toBeUndefined();
+  });
+
+  it("shows a moved disk as copying in while its data arrives, and offers no move", () => {
+    setup({ volumes: [{ ...AVAILABLE, gseq: 1, oseq: 2 }], volumeStatus: { phase: "Importing", size_bytes: 1, import_from: "akash1previous" } });
+
+    expect(screen.getByText("Copying in")).toBeInTheDocument();
+    expect(screen.getByText("From its previous provider")).toBeInTheDocument();
+    expect(screen.queryByText("Available")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Move data" })).not.toBeInTheDocument();
+  });
+
+  it("shows a moved disk as available once its data arrived", () => {
+    setup({ volumes: [{ ...AVAILABLE, gseq: 1, oseq: 2 }], volumeStatus: { phase: "Provisioned", size_bytes: 1 } });
+
+    expect(screen.getByText("Available")).toBeInTheDocument();
+    expect(screen.queryByText("Copying in")).not.toBeInTheDocument();
+  });
+
   it("holds placeholder rows while the volumes load", () => {
     setup({ isLoading: true });
 
@@ -180,7 +311,14 @@ describe(VolumesPage.name, () => {
     expect(screen.queryByRole("dialog", { name: "Create a volume" })).not.toBeInTheDocument();
   });
 
-  function setup(input: { volumes?: OwnedVolume[]; isLoading?: boolean; isError?: boolean; providers?: ApiProviderList[]; countdown?: string | null }) {
+  function setup(input: {
+    volumes?: OwnedVolume[];
+    isLoading?: boolean;
+    isError?: boolean;
+    providers?: ApiProviderList[];
+    countdown?: string | null;
+    volumeStatus?: VolumeStatus;
+  }) {
     const refetch = vi.fn();
     const useOwnedVolumes: typeof DEPENDENCIES.useOwnedVolumes = () => ({
       volumes: input.volumes ?? [],
@@ -192,8 +330,21 @@ describe(VolumesPage.name, () => {
       mock<ReturnType<typeof DEPENDENCIES.useProvidersByAddresses>>({ data: input.providers ?? [] })
     );
     const useCountdown = vi.fn((_deadline: Date | null) => input.countdown ?? null);
+    const useVolumeStatus = vi.fn((..._args: Parameters<typeof DEPENDENCIES.useVolumeStatus>) =>
+      mock<ReturnType<typeof DEPENDENCIES.useVolumeStatus>>({ data: input.volumeStatus })
+    );
     const CreateVolumeDialog = vi.fn<typeof DEPENDENCIES.CreateVolumeDialog>(() => <div role="dialog" aria-label="Create a volume" />);
-    const dependencies = MockComponents(DEPENDENCIES, { useOwnedVolumes, useProvidersByAddresses, useCountdown, CreateVolumeDialog });
+    const MoveVolumeDialog = vi.fn<typeof DEPENDENCIES.MoveVolumeDialog>(() => <div role="dialog" aria-label="Move a volume" />);
+    const ChooseVolumeProviderDialog = vi.fn<typeof DEPENDENCIES.ChooseVolumeProviderDialog>(() => <div role="dialog" aria-label="Choose a provider" />);
+    const dependencies = MockComponents(DEPENDENCIES, {
+      useOwnedVolumes,
+      useProvidersByAddresses,
+      useCountdown,
+      useVolumeStatus: useVolumeStatus as typeof DEPENDENCIES.useVolumeStatus,
+      CreateVolumeDialog,
+      MoveVolumeDialog,
+      ChooseVolumeProviderDialog
+    });
 
     render(<VolumesPage dependencies={dependencies} />);
 
@@ -201,6 +352,9 @@ describe(VolumesPage.name, () => {
       refetch,
       useProvidersByAddresses,
       useCountdown,
+      useVolumeStatus,
+      MoveVolumeDialog,
+      ChooseVolumeProviderDialog,
       Layout: dependencies.Layout,
       CreateVolumeDialog,
       PricePerTimeUnit: dependencies.PricePerTimeUnit

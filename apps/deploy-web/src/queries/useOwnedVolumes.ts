@@ -2,7 +2,7 @@ import { useMemo } from "react";
 
 import { useWallet } from "@src/context/WalletProvider";
 import type { DeploymentDto, LeaseDto } from "@src/types/deployment";
-import { getReclamationDeadline, isClosingVolume, isReclaiming } from "@src/utils/reclamationUtils";
+import { getReclamationDeadline, isClosingVolume, isMovingVolume, isReclaiming } from "@src/utils/reclamationUtils";
 import type { VolumeAccess } from "@src/utils/sdl/volumeSdl";
 import { isBucketVolume, volumeClassOf, volumeOf } from "@src/utils/volumeUtils";
 import { useDeploymentList } from "./useDeploymentQuery";
@@ -14,10 +14,10 @@ export const DEPENDENCIES = { useWallet, useDeploymentList, useAllLeases };
 const LIVE_LEASE_STATES = ["active", "reclaiming"] as const;
 
 /**
- * `closing` is a close its owner asked for and `reclaiming` one the provider or a move started; either way the
- * chain holds the lease until its reclamation deadline.
+ * `closing` is a close its owner asked for, `moving` a move its owner started and `reclaiming` one the provider
+ * started; either way the chain holds the lease until its reclamation deadline.
  */
-export type VolumeState = "unleased" | "available" | "mounted" | "closing" | "reclaiming";
+export type VolumeState = "unleased" | "available" | "mounted" | "closing" | "moving" | "reclaiming";
 
 export interface OwnedVolume {
   name: string;
@@ -99,6 +99,7 @@ export function ownedVolumesOf(deployments: DeploymentDto[], leases: LeaseDto[])
 function volumeStateOf(lease: LeaseDto | undefined, mountedBy: string | undefined): VolumeState {
   if (!lease) return "unleased";
   if (isClosingVolume(lease)) return "closing";
+  if (isMovingVolume(lease)) return "moving";
   if (isReclaiming(lease)) return "reclaiming";
   return mountedBy ? "mounted" : "available";
 }

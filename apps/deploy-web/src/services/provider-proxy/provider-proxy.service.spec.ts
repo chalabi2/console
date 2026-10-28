@@ -1067,6 +1067,27 @@ describe(ProviderProxyService.name, () => {
     });
   });
 
+  describe("fetchVolumeStatus", () => {
+    it("reads where the lease's volume stands with a jwt", async () => {
+      const status = { phase: "Importing", size_bytes: 1, import_from: "akash1previous" };
+      const httpClient = mock<HttpClient>({ post: vi.fn().mockResolvedValue({ data: status }) } as unknown as HttpClient);
+      const { service } = setup({ httpClient });
+
+      const result = await service.fetchVolumeStatus(bucketLease());
+
+      const [, payload] = (httpClient.post as Mock).mock.calls[0];
+      expect(payload).toEqual(
+        expect.objectContaining({
+          method: "GET",
+          url: "https://provider.test/lease/123/1/2/volume",
+          providerAddress: "akash1provider",
+          auth: { type: "jwt", token: "bucket-jwt" }
+        })
+      );
+      expect(result).toEqual(status);
+    });
+  });
+
   describe("fetchBucketInfo", () => {
     it("reads the lease's bucket with a jwt", async () => {
       const info = { bucket: "assets-0123", endpoint: "https://s3.provider.test", region: "default", size_bytes: 1, used_bytes: 0, keys: [] };

@@ -116,6 +116,11 @@ export function isClosingVolume(lease: Pick<LeaseDto, "state" | "reclamation">):
   return isReclaiming(lease) && toNumericCloseReason(lease.reclamation?.reason) === LeaseClosedReason.reason_volume_closed_retain;
 }
 
+/** A volume its owner is moving keeps its lease reclaiming until the reclamation window ends, when providers bid to take it. */
+export function isMovingVolume(lease: Pick<LeaseDto, "state" | "reclamation">): boolean {
+  return isReclaiming(lease) && toNumericCloseReason(lease.reclamation?.reason) === LeaseClosedReason.reason_volume_migrate;
+}
+
 /** The soonest deadline among a deployment's reclaiming leases: the moment the workload actually goes dark. */
 export function getNearestReclamationDeadline(leases: LeaseDto[] | null | undefined): Date | null {
   const deadlines = (leases ?? [])

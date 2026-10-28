@@ -74,12 +74,20 @@ describe("useOwnedVolumes", () => {
       expect(volume).toMatchObject({ state: "closing", provider: PROVIDER, reclamationDeadline: new Date(DEADLINE_SECONDS * 1000) });
     });
 
-    it.each(["reason_volume_evict", "reason_volume_migrate"])("reads a volume reclaimed for %s as reclaiming", reason => {
-      const lease = buildLease({ dseq: "100", state: "reclaiming", reclamation: { reason, deadline: DEADLINE_SECONDS } });
+    it("reads a volume its provider is evicting as reclaiming", () => {
+      const lease = buildLease({ dseq: "100", state: "reclaiming", reclamation: { reason: "reason_volume_evict", deadline: DEADLINE_SECONDS } });
 
       const [volume] = ownedVolumesOf([buildVolumeDeployment("100")], [lease]);
 
       expect(volume).toMatchObject({ state: "reclaiming", reclamationDeadline: new Date(DEADLINE_SECONDS * 1000) });
+    });
+
+    it("reads a volume its owner is moving as moving, until its lease ends", () => {
+      const lease = buildLease({ dseq: "100", state: "reclaiming", reclamation: { reason: "reason_volume_migrate", deadline: DEADLINE_SECONDS } });
+
+      const [volume] = ownedVolumesOf([buildVolumeDeployment("100")], [lease]);
+
+      expect(volume).toMatchObject({ state: "moving", reclamationDeadline: new Date(DEADLINE_SECONDS * 1000) });
     });
 
     it("reads no deadline for a reclaiming lease the chain gave none", () => {

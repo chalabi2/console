@@ -9,10 +9,13 @@ import { NextSeo } from "next-seo";
 import { useCountdown } from "@src/components/deployments/ReclamationBanner/useCountdown";
 import Layout from "@src/components/layout/Layout";
 import { PricePerTimeUnit } from "@src/components/shared/PricePerTimeUnit";
+import { ChooseVolumeProviderDialog } from "@src/components/volumes/ChooseVolumeProviderDialog/ChooseVolumeProviderDialog";
 import { CreateVolumeDialog } from "@src/components/volumes/CreateVolumeDialog/CreateVolumeDialog";
+import { MoveVolumeDialog } from "@src/components/volumes/MoveVolumeDialog/MoveVolumeDialog";
 import type { OwnedVolume } from "@src/queries/useOwnedVolumes";
 import { useOwnedVolumes } from "@src/queries/useOwnedVolumes";
 import { useProvidersByAddresses } from "@src/queries/useProvidersQuery";
+import { IMPORTING_PHASE, useVolumeStatus } from "@src/queries/useVolumeStatusQuery";
 import type { ApiProviderList } from "@src/types/provider";
 import { persistentStorageTypes } from "@src/utils/akash/units";
 import { PRICE_DISPLAY_PRECISION, udenomToDenom } from "@src/utils/mathHelpers";
@@ -21,7 +24,18 @@ import { defaultPlacement } from "@src/utils/sdl/data";
 import { formatByteSize } from "@src/utils/unitUtils";
 import { UrlService } from "@src/utils/urlUtils";
 
-export const DEPENDENCIES = { useOwnedVolumes, useProvidersByAddresses, useCountdown, Layout, NextSeo, CreateVolumeDialog, PricePerTimeUnit };
+export const DEPENDENCIES = {
+  useOwnedVolumes,
+  useProvidersByAddresses,
+  useCountdown,
+  useVolumeStatus,
+  Layout,
+  NextSeo,
+  CreateVolumeDialog,
+  MoveVolumeDialog,
+  ChooseVolumeProviderDialog,
+  PricePerTimeUnit
+};
 
 const STANDALONE_PLACEMENT = defaultPlacement({ name: "dcloud" });
 const LOADING_ROWS = ["first", "second", "third"];
@@ -29,6 +43,8 @@ const LOADING_ROWS = ["first", "second", "third"];
 export const VolumesPage: FC<{ dependencies?: typeof DEPENDENCIES }> = ({ dependencies: d = DEPENDENCIES }) => {
   const { volumes, isLoading, isError, refetch } = d.useOwnedVolumes();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [volumeToMove, setVolumeToMove] = useState<OwnedVolume>();
+  const [volumeToLease, setVolumeToLease] = useState<OwnedVolume>();
   const { data: providers } = d.useProvidersByAddresses(volumes.flatMap(volume => volume.provider ?? []));
   const openCreate = () => setIsCreateOpen(true);
   const hasNoVolumes = !isLoading && volumes.length === 0;
@@ -84,6 +100,9 @@ export const VolumesPage: FC<{ dependencies?: typeof DEPENDENCIES }> = ({ depend
                   <TableHead>Size</TableHead>
                   <TableHead>Provider</TableHead>
                   <TableHead>Cost</TableHead>
+                  <TableHead>
+                    <span className="sr-only">Actions</span>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -94,6 +113,8 @@ export const VolumesPage: FC<{ dependencies?: typeof DEPENDENCIES }> = ({ depend
                         key={volume.dseq}
                         volume={volume}
                         provider={providers.find(candidate => candidate.owner === volume.provider)}
+                        onMove={() => setVolumeToMove(volume)}
+                        onChooseProvider={() => setVolumeToLease(volume)}
                         dependencies={d}
                       />
                     ))}
@@ -113,12 +134,31 @@ export const VolumesPage: FC<{ dependencies?: typeof DEPENDENCIES }> = ({ depend
           offersBuckets
         />
       )}
+
+      {volumeToMove && (
+        <d.MoveVolumeDialog volume={volumeToMove} providerName={providerNameOf(volumeToMove, providers)} onClose={() => setVolumeToMove(undefined)} />
+      )}
+
+      {volumeToLease && <d.ChooseVolumeProviderDialog volume={volumeToLease} onClose={() => setVolumeToLease(undefined)} />}
     </d.Layout>
   );
 };
 
-const VolumeRow: FC<{ volume: OwnedVolume; provider?: ApiProviderList; dependencies: typeof DEPENDENCIES }> = ({ volume, provider, dependencies: d }) => {
+const VolumeRow: FC<{
+  volume: OwnedVolume;
+  provider?: ApiProviderList;
+  onMove: () => void;
+  onChooseProvider: () => void;
+  dependencies: typeof DEPENDENCIES;
+}> = ({ volume, provider, onMove, onChooseProvider, dependencies: d }) => {
   const storageType = persistentStorageTypes.find(type => type.className === volume.storageClass)?.name;
+  const isDisk = volume.access === "mount";
+  const isLive = volume.state === "available" || volume.state === "mounted";
+  const { data: status } = d.useVolumeStatus(
+    { provider: provider && { owner: provider.owner, hostUri: provider.hostUri }, dseq: volume.dseq, gseq: volume.gseq ?? 1, oseq: volume.oseq ?? 1 },
+    { enabled: isDisk && isLive && wasMoved(volume) }
+  );
+  const isCopyingIn = status?.phase === IMPORTING_PHASE;
 
   return (
     <TableRow>
@@ -132,7 +172,7 @@ const VolumeRow: FC<{ volume: OwnedVolume; provider?: ApiProviderList; dependenc
         <div className="font-mono text-xs text-muted-foreground">{volume.dseq}</div>
       </TableCell>
       <TableCell>
-        <VolumeStateLabel volume={volume} dependencies={d} />
+        <VolumeStateLabel volume={volume} isCopyingIn={isCopyingIn} dependencies={d} />
       </TableCell>
       <TableCell>{storageType ? `${formatByteSize(volume.sizeBytes)} · ${storageType}` : formatByteSize(volume.sizeBytes)}</TableCell>
       <TableCell>{provider ? providerDisplayName(provider) : volume.provider}</TableCell>
@@ -145,12 +185,33 @@ const VolumeRow: FC<{ volume: OwnedVolume; provider?: ApiProviderList; dependenc
           />
         )}
       </TableCell>
+      <TableCell className="text-right">
+        {isDisk && isLive && !isCopyingIn && (
+          <Button variant="outline" size="sm" onClick={onMove} aria-label={`Move ${volume.name}`}>
+            Move
+          </Button>
+        )}
+        {isDisk && volume.state === "unleased" && (
+          <Button size="sm" onClick={onChooseProvider} aria-label={`Choose a provider for ${volume.name}`}>
+            Choose provider
+          </Button>
+        )}
+      </TableCell>
     </TableRow>
   );
 };
 
-const VolumeStateLabel: FC<{ volume: OwnedVolume; dependencies: typeof DEPENDENCIES }> = ({ volume, dependencies: d }) => {
+const VolumeStateLabel: FC<{ volume: OwnedVolume; isCopyingIn: boolean; dependencies: typeof DEPENDENCIES }> = ({ volume, isCopyingIn, dependencies: d }) => {
   const countdown = d.useCountdown(volume.reclamationDeadline ?? null);
+
+  if (isCopyingIn) {
+    return (
+      <div className="flex flex-col items-start gap-1">
+        <Badge variant="info">Copying in</Badge>
+        <span className="text-xs text-muted-foreground">From its previous provider</span>
+      </div>
+    );
+  }
 
   switch (volume.state) {
     case "available":
@@ -173,6 +234,13 @@ const VolumeStateLabel: FC<{ volume: OwnedVolume; dependencies: typeof DEPENDENC
           <span className="text-xs text-muted-foreground">{countdown ? `Finishes closing in ${countdown}` : "Finishing closing now"}</span>
         </div>
       );
+    case "moving":
+      return (
+        <div className="flex flex-col items-start gap-1">
+          <Badge variant="secondary">Moving</Badge>
+          <span className="text-xs text-muted-foreground">{countdown ? `Providers bid in ${countdown}` : "Providers bid now"}</span>
+        </div>
+      );
     case "reclaiming":
       return (
         <div className="flex flex-col items-start gap-1">
@@ -185,9 +253,19 @@ const VolumeStateLabel: FC<{ volume: OwnedVolume; dependencies: typeof DEPENDENC
   }
 };
 
+/** A volume's order re-lists under the next sequence each time a move or an eviction ends its lease. */
+function wasMoved(volume: OwnedVolume): boolean {
+  return (volume.oseq ?? 1) > 1;
+}
+
+function providerNameOf(volume: OwnedVolume, providers: ApiProviderList[]): string {
+  const provider = providers.find(candidate => candidate.owner === volume.provider);
+  return provider ? providerDisplayName(provider) : volume.provider ?? "its provider";
+}
+
 const RowPlaceholder: FC = () => (
   <TableRow data-testid="volume-placeholder">
-    {["volume", "state", "size", "provider", "cost"].map(column => (
+    {["volume", "state", "size", "provider", "cost", "actions"].map(column => (
       <TableCell key={column}>
         <Skeleton className="h-4 w-24" />
       </TableCell>
