@@ -7,6 +7,12 @@ import intervalToDuration from "date-fns/intervalToDuration";
 export function useCountdown(deadline: Date | null): string | null {
   const [now, setNow] = useState(() => new Date());
   const deadlineTime = deadline?.getTime();
+  const [countingDownTo, setCountingDownTo] = useState(deadlineTime);
+
+  if (countingDownTo !== deadlineTime) {
+    setCountingDownTo(deadlineTime);
+    setNow(new Date());
+  }
 
   useEffect(() => {
     if (deadlineTime === undefined) return;

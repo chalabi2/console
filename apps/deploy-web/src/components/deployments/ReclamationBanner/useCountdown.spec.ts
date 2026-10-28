@@ -87,6 +87,24 @@ describe(useCountdown.name, () => {
     expect(result.current).toBe("1 hour");
   });
 
+  it("counts from when a deadline appears rather than from when it first rendered without one", () => {
+    const { result, rerender } = setup({ secondsFromNow: null });
+    vi.setSystemTime(new Date(NOW.getTime() + 10 * 60 * 1000));
+
+    rerender({ secondsFromNow: 10 * 60 + 8 });
+
+    expect(result.current).toBe("8 seconds");
+  });
+
+  it("counts from when the deadline changes rather than from its last tick", () => {
+    const { result, rerender } = setup({ secondsFromNow: 60 });
+    vi.setSystemTime(new Date(NOW.getTime() + 30 * 1000));
+
+    rerender({ secondsFromNow: 3600 });
+
+    expect(result.current).toBe("59 minutes, 30 seconds");
+  });
+
   function setup(input: { secondsFromNow: number | null }) {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
