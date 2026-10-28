@@ -38,7 +38,7 @@ export const DeploymentPlacements: FC<DeploymentPlacementsProps> = ({
   }
 
   const serviceCount = countPlacementServices(leases, servicesByPlacement, manifestServices);
-  const volumeCount = leases.filter(lease => volumeOf(lease.group)).length;
+  const volumeCount = new Set(leases.flatMap(lease => volumeOf(lease.group)?.vid ?? [])).size;
   const contentSummary = volumeCount > 0 ? `${volumeCount} ${pluralize("volume", volumeCount)}` : `${serviceCount} ${pluralize("service", serviceCount)}`;
 
   return (

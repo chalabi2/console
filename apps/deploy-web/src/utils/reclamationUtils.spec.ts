@@ -11,6 +11,7 @@ import {
   getReclamationDeadline,
   isClosedByOwner,
   isClosingVolume,
+  isMovedVolumeLease,
   isMovingVolume,
   isProviderReclaimed,
   isReclaiming,
@@ -67,6 +68,14 @@ describe("reclamationUtils", () => {
 
     it("credits a volume's close to its owner, though the chain files it under a network reason", () => {
       expect(getLeaseCloseReasonLabel("reason_volume_closed_retain")).toBe("Closed by you");
+    });
+
+    it("reads a volume's lease that ended when it moved as moved, not closed", () => {
+      expect(getLeaseCloseReasonLabel("reason_volume_migrate")).toBe("Moved to another provider");
+    });
+
+    it("reads a volume's lease that ended when its provider gave it back as given back", () => {
+      expect(getLeaseCloseReasonLabel("reason_volume_evict")).toBe("Given back by its provider");
     });
 
     it("never returns a raw enum name", () => {
@@ -237,6 +246,25 @@ describe("reclamationUtils", () => {
       { case: "says nothing of why it is reclaiming", lease: { state: "reclaiming" } }
     ])("does not read a lease that $case as a moving volume", ({ lease }) => {
       expect(isMovingVolume(createLease(lease))).toBe(false);
+    });
+  });
+
+  describe(isMovedVolumeLease.name, () => {
+    it.each([
+      { case: "its owner moved it", lease: { state: "closed", reason: "reason_volume_migrate" } },
+      { case: "its provider gave it back", lease: { state: "closed", reason: "reason_volume_evict" } },
+      { case: "it moved, as its reclamation says", lease: { state: "closed", reclamation: { reason: "reason_volume_migrate" } } }
+    ])("reads a lease that ended because $case as a moved volume's", ({ lease }) => {
+      expect(isMovedVolumeLease(createLease(lease))).toBe(true);
+    });
+
+    it.each([
+      { case: "is still moving", lease: { state: "reclaiming", reclamation: { reason: "reason_volume_migrate" } } },
+      { case: "its owner closed", lease: { state: "closed", reason: "reason_volume_closed_retain" } },
+      { case: "its provider closed", lease: { state: "closed", reason: "lease_closed_reason_unstable" } },
+      { case: "says nothing of why it closed", lease: { state: "closed" } }
+    ])("does not read a lease that $case as a moved volume's", ({ lease }) => {
+      expect(isMovedVolumeLease(createLease(lease))).toBe(false);
     });
   });
 

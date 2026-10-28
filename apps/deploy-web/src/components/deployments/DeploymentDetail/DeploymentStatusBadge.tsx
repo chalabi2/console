@@ -13,6 +13,7 @@ import {
   getClosedLeaseSummaryLabel,
   isClosedByOwner,
   isClosingVolume,
+  isMovingVolume,
   isProviderReclaimed,
   isReclaiming
 } from "@src/utils/reclamationUtils";
@@ -75,6 +76,8 @@ const UPDATING_STATUS: DeploymentStatusView = { label: "Updating", summaryLabel:
 
 const RECLAIMING_STATUS: DeploymentStatusView = { label: "Reclaiming", summaryLabel: "Reclaiming", tone: "warning" };
 
+const MOVING_STATUS: DeploymentStatusView = { label: "Moving", summaryLabel: "Moving", tone: "loading" };
+
 const CLOSED_BY_CONSOLE_LABEL = "Closed by Console";
 
 /** One name from the moment a lease is requested until every service has a ready replica, whichever part of that the deployment is in. */
@@ -112,6 +115,7 @@ export function getDeploymentStatus(
 
   if (!deadLease) {
     if (leases?.some(isClosingVolume)) return CLOSING_STATUS;
+    if (leases?.some(isMovingVolume)) return MOVING_STATUS;
     if (leases?.some(isReclaiming)) return RECLAIMING_STATUS;
     const workloadStatus = state === "active" && workload ? WORKLOAD_STATUSES[workload] : undefined;
     if (workloadStatus) return workloadStatus;

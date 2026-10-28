@@ -1,6 +1,7 @@
 "use client";
 import type { FC } from "react";
 import { useState } from "react";
+import { Alert, AlertDescription, AlertTitle } from "@akashnetwork/ui/components";
 import { ChevronRight, MapPin, Server } from "lucide-react";
 import Link from "next/link";
 
@@ -12,7 +13,7 @@ import type { ApiProviderList } from "@src/types/provider";
 import { getGroupTeeType } from "@src/utils/confidentialCompute";
 import { isLeaseLive } from "@src/utils/leaseUtils";
 import { providerDisplayName } from "@src/utils/providerUtils";
-import { isClosingVolume, isProviderReclaimed, isReclaiming } from "@src/utils/reclamationUtils";
+import { getClosedLeaseLabel, isClosingVolume, isMovedVolumeLease, isMovingVolume, isProviderReclaimed, isReclaiming } from "@src/utils/reclamationUtils";
 import { UrlService } from "@src/utils/urlUtils";
 import { isBucketVolume, volumeClassOf, volumeOf } from "@src/utils/volumeUtils";
 import { ConfidentialComputeResources } from "../../ConfidentialComputeResources";
@@ -72,8 +73,9 @@ export const PlacementCard: FC<PlacementCardProps> = ({
   const carveouts = d.useTeeResourceCarveouts(lease);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
 
-  const isReclaimed = isProviderReclaimed(lease);
   const volume = volumeOf(lease.group);
+  const hasVolumeMovedOn = !!volume && isMovedVolumeLease(lease);
+  const isReclaimed = isProviderReclaimed(lease) && !hasVolumeMovedOn;
   const teeType = getGroupTeeType(lease.group);
   const name = getPlacementName(lease.group, index);
   const region = getProviderRegion(provider);
@@ -109,7 +111,7 @@ export const PlacementCard: FC<PlacementCardProps> = ({
               {index + 1}
             </div>
             <h3 className="text-2xl font-medium tracking-tight">{name}</h3>
-            {isReclaiming(lease) && <StatusBadge label={isClosingVolume(lease) ? "Closing" : "Reclaiming"} tone="warning" />}
+            {isReclaiming(lease) && <StatusBadge label={reclaimingLabelOf(lease)} tone="warning" />}
             {isProviderUnreachable && <StatusBadge label="Provider not responding" tone="warning" />}
           </div>
           {(region || providerName) && (
@@ -140,6 +142,12 @@ export const PlacementCard: FC<PlacementCardProps> = ({
           />
         </div>
       </div>
+
+      {hasVolumeMovedOn && (
+        <div className="px-6 pt-6">
+          <MovedVolumeNotice lease={lease} providerName={providerName} />
+        </div>
+      )}
 
       {(isReclaimed || carveouts.length > 0 || (isLeaseActive && !!provider && !!teeType)) && (
         <div className="space-y-4 px-6 pt-6">
@@ -195,3 +203,22 @@ export const PlacementCard: FC<PlacementCardProps> = ({
     </div>
   );
 };
+
+function reclaimingLabelOf(lease: LeaseDto): string {
+  if (isClosingVolume(lease)) return "Closing";
+  if (isMovingVolume(lease)) return "Moving";
+  return "Reclaiming";
+}
+
+const MovedVolumeNotice: FC<{ lease: LeaseDto; providerName?: string }> = ({ lease, providerName }) => (
+  <Alert className="p-4">
+    <AlertTitle>{getClosedLeaseLabel(lease)}</AlertTitle>
+    <AlertDescription>
+      Its lease with {providerName ?? "this provider"} has ended. The provider it is leased from next copies its data, and the{" "}
+      <Link href={UrlService.volumes()} className="underline">
+        Volumes
+      </Link>{" "}
+      page shows where it is now.
+    </AlertDescription>
+  </Alert>
+);

@@ -234,6 +234,45 @@ describe(PlacementCard.name, () => {
       expect(VolumeAttachment).not.toHaveBeenCalled();
     });
 
+    it("marks a volume its owner is moving as moving, not reclaimed", () => {
+      setup({ lease: buildLease({ volume: { vid: "data" }, state: "reclaiming", reclamation: { reason: "reason_volume_migrate" } }) });
+
+      expect(screen.getByText("Moving")).toBeInTheDocument();
+      expect(screen.queryByText("Reclaiming")).not.toBeInTheDocument();
+    });
+
+    it.each([
+      { case: "its owner moved it", reason: "reason_volume_migrate", title: "Moved to another provider" },
+      { case: "its provider gave it back", reason: "reason_volume_evict", title: "Given back by its provider" }
+    ])("says a volume moved on when $case, offering nothing that would end it", ({ reason, title }) => {
+      const ReclamationCard = vi.fn(() => <div>reclamation</div>);
+      const lease = buildLease({ volume: { vid: "data" }, state: "closed", reason, reclamation: { reason, startedAt: "100" } });
+      setup({ lease, leaseStatus: null, dependencies: { ReclamationCard } });
+
+      expect(screen.getByText(title)).toBeInTheDocument();
+      expect(screen.getByText(/Its lease with Meridian Cloud has ended\./)).toHaveTextContent(
+        "Its lease with Meridian Cloud has ended. The provider it is leased from next copies its data, and the Volumes page shows where it is now."
+      );
+      expect(screen.getByRole("link", { name: "Volumes" })).toHaveAttribute("href", "/volumes");
+      expect(ReclamationCard).not.toHaveBeenCalled();
+    });
+
+    it("names no provider it does not know when a volume moved on", () => {
+      const lease = buildLease({ volume: { vid: "data" }, state: "closed", reason: "reason_volume_migrate" });
+      setup({ lease, provider: undefined, leaseStatus: null });
+
+      expect(screen.getByText(/Its lease with this provider has ended\./)).toBeInTheDocument();
+    });
+
+    it("still offers to redeploy a volume its provider closed for good", () => {
+      const ReclamationCard = vi.fn(() => <div>reclamation</div>);
+      const lease = buildLease({ volume: { vid: "data" }, state: "closed", groupState: "paused", reason: "lease_closed_reason_decommission" });
+      setup({ lease, leaseStatus: null, dependencies: { ReclamationCard } });
+
+      expect(screen.getByText("reclamation")).toBeInTheDocument();
+      expect(screen.queryByText(/has ended/)).not.toBeInTheDocument();
+    });
+
     it("shows how another deployment attaches the volume instead of listing services", () => {
       const VolumeAttachment = vi.fn((_props: VolumeAttachmentProps) => <div>volume-attachment</div>);
       setup({ lease: buildLease({ volume: { vid: "data" } }), dependencies: { VolumeAttachment } });
@@ -287,9 +326,11 @@ describe(PlacementCard.name, () => {
     volume?: GroupVolume;
     storageClass?: string;
     reclamation?: LeaseDto["reclamation"];
+    reason?: string;
   }) {
     return mock<LeaseDto>({
       ...(input?.reclamation && { reclamation: input.reclamation }),
+      reason: input?.reason,
       offeredGpus: input?.offeredGpus,
       id: "1",
       owner: "akash1owner",

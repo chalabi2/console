@@ -69,6 +69,18 @@ describe(DeploymentPlacements.name, () => {
     expect(screen.getByText("1 placement · 1 volume")).toBeInTheDocument();
   });
 
+  it("counts a volume that moved between providers once, however many leases it had", () => {
+    setup({ leases: [buildVolumeLease("a"), buildVolumeLease("b"), buildVolumeLease("c")] });
+
+    expect(screen.getByText("3 placements · 1 volume")).toBeInTheDocument();
+  });
+
+  it("counts each volume its leases hold", () => {
+    setup({ leases: [buildVolumeLease("a"), buildVolumeLease("b", "logs")] });
+
+    expect(screen.getByText("2 placements · 2 volumes")).toBeInTheDocument();
+  });
+
   function buildLease(id: string, provider = "akash1prov") {
     return mock<LeaseDto>({ id, provider });
   }
@@ -77,11 +89,11 @@ describe(DeploymentPlacements.name, () => {
     return mock<LeaseDto>({ id, provider: "akash1prov", group: mock<DeploymentGroup>({ group_spec: { name: placementName } } as Partial<DeploymentGroup>) });
   }
 
-  function buildVolumeLease(id: string) {
+  function buildVolumeLease(id: string, vid = "data") {
     return mock<LeaseDto>({
       id,
       provider: "akash1prov",
-      group: mock<DeploymentGroup>({ group_spec: { name: "global", volume: { vid: "data" } } } as Partial<DeploymentGroup>)
+      group: mock<DeploymentGroup>({ group_spec: { name: "global", volume: { vid } } } as Partial<DeploymentGroup>)
     });
   }
 

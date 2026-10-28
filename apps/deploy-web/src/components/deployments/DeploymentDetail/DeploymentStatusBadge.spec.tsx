@@ -90,6 +90,22 @@ describe("DeploymentStatusBadge", () => {
     expect(screen.queryByText("Reclaiming")).not.toBeInTheDocument();
   });
 
+  it("reports a volume its owner is moving as moving, not reclaimed", () => {
+    setup({ state: "active", leases: [mock<LeaseDto>({ state: "reclaiming", reclamation: { reason: "reason_volume_migrate" } })] });
+
+    expect(screen.getByText("Moving")).toBeInTheDocument();
+    expect(screen.queryByText("Reclaiming")).not.toBeInTheDocument();
+  });
+
+  it("reports a volume between providers by how it left the last one", () => {
+    setup({
+      state: "active",
+      leases: [mock<LeaseDto>({ state: "closed", reason: "reason_volume_migrate", reclamation: { reason: "reason_volume_migrate" } })]
+    });
+
+    expect(screen.getByText("Moved to another provider")).toBeInTheDocument();
+  });
+
   it("reports reclaiming even when another placement is still healthy", () => {
     setup({ state: "active", leases: [mock<LeaseDto>({ state: "active" }), mock<LeaseDto>({ state: "reclaiming" })] });
 

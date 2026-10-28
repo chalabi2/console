@@ -23,6 +23,20 @@ describe("ReclamationBanner", () => {
     expect(screen.queryByText("This deployment is being reclaimed")).not.toBeInTheDocument();
   });
 
+  it("leaves a volume its owner is moving to its moving state, since no provider is reclaiming it", () => {
+    setup({ leases: [createLease({ state: "reclaiming", reclamation: { reason: "reason_volume_migrate" } })] });
+
+    expect(screen.queryByText("This deployment is being reclaimed")).not.toBeInTheDocument();
+  });
+
+  it("appears once a lease starts being reclaimed", () => {
+    const { showLeases } = setup({ leases: [createLease({ state: "active" })] });
+
+    showLeases([createLease({ state: "reclaiming" })]);
+
+    expect(screen.getByText("This deployment is being reclaimed")).toBeInTheDocument();
+  });
+
   it("renders nothing when there are no leases", () => {
     setup({ leases: [] });
     expect(screen.queryByText("This deployment is being reclaimed")).not.toBeInTheDocument();
@@ -152,15 +166,12 @@ describe("ReclamationBanner", () => {
       retry: vi.fn()
     }));
 
-    const utils = render(
-      <ReclamationBanner
-        leases={input.leases}
-        dseq="123"
-        dependencies={MockComponents(DEPENDENCIES, { useDeploymentDefinition, useNewDeploymentUrl, useRedeploy, useCanManageDeployment })}
-      />
-    );
+    const dependencies = MockComponents(DEPENDENCIES, { useDeploymentDefinition, useNewDeploymentUrl, useRedeploy, useCanManageDeployment });
+    const utils = render(<ReclamationBanner leases={input.leases} dseq="123" dependencies={dependencies} />);
 
-    return { ...utils, redeploy, useCanManageDeployment };
+    const showLeases = (leases: LeaseDto[]) => utils.rerender(<ReclamationBanner leases={leases} dseq="123" dependencies={dependencies} />);
+
+    return { ...utils, redeploy, useCanManageDeployment, showLeases };
   }
 
   function createLease(overrides: { state?: string; reclamation?: LeaseDto["reclamation"] } = {}): LeaseDto {

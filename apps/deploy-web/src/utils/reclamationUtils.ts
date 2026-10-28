@@ -47,6 +47,10 @@ export function getLeaseCloseReasonLabel(reason?: string): string {
       return "Closed by provider (manifest timeout)";
     case LeaseClosedReason.lease_closed_reason_insufficient_funds:
       return "Closed (insufficient funds)";
+    case LeaseClosedReason.reason_volume_migrate:
+      return "Moved to another provider";
+    case LeaseClosedReason.reason_volume_evict:
+      return "Given back by its provider";
     default:
       // Covers the provider "unspecified" reason plus tenant/network buckets without a specific copy.
       return classifyLeaseCloseReason(reason) === "provider" ? "Closed by provider" : "Closed";
@@ -120,6 +124,13 @@ export function isClosingVolume(lease: Pick<LeaseDto, "state" | "reclamation">):
 export function isMovingVolume(lease: Pick<LeaseDto, "state" | "reclamation">): boolean {
   return isReclaiming(lease) && toNumericCloseReason(lease.reclamation?.reason) === LeaseClosedReason.reason_volume_migrate;
 }
+
+/** A volume's lease ends this way when the volume moves on, its owner moving it or its provider giving it back, and its order lists for the next provider. */
+export function isMovedVolumeLease(lease: Pick<LeaseDto, "state" | "reason" | "reclamation">): boolean {
+  return lease.state === "closed" && VOLUME_MOVE_REASONS.includes(toNumericCloseReason(lease.reason ?? lease.reclamation?.reason));
+}
+
+const VOLUME_MOVE_REASONS: Array<number | undefined> = [LeaseClosedReason.reason_volume_migrate, LeaseClosedReason.reason_volume_evict];
 
 /** The soonest deadline among a deployment's reclaiming leases: the moment the workload actually goes dark. */
 export function getNearestReclamationDeadline(leases: LeaseDto[] | null | undefined): Date | null {
