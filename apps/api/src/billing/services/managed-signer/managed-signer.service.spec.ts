@@ -1,6 +1,6 @@
 import { MsgAccountDeposit, MsgCreateCertificate, Scope } from "@akashnetwork/chain-sdk/private-types/akash.v1";
 import { MsgCloseDeployment, MsgCreateDeployment } from "@akashnetwork/chain-sdk/private-types/akash.v1beta4";
-import { MsgCancelLeaseResize, MsgCreateLease, MsgResizeLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
+import { MsgCancelLeaseResize, MsgCloseLease, MsgCreateLease, MsgResizeLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
 import type { LeaseHttpService } from "@akashnetwork/http-sdk";
 import type { MongoAbility } from "@casl/ability";
 import { createMongoAbility } from "@casl/ability";
@@ -1986,6 +1986,17 @@ describe(ManagedSignerService.name, () => {
       expect(txManagerService.signAndBroadcastWithDerivedWallet).not.toHaveBeenCalled();
     });
 
+    it("refuses a lease close sent by a caller, which only a volume move signs", async () => {
+      const wallet = createOrganizationWallet({ activatedAt: new Date() });
+      const { service, txManagerService } = setupForTeam({ wallet, decode: vi.fn().mockReturnValue({ id: { owner: wallet.address, dseq: 1 } }) });
+
+      await expect(service.executeDerivedEncodedTxByUserId("member-1", [encodedMessage(MsgCloseLease.$type)])).rejects.toMatchObject({
+        status: 403,
+        errorCode: "message_signer_mismatch"
+      });
+      expect(txManagerService.signAndBroadcastWithDerivedWallet).not.toHaveBeenCalled();
+    });
+
     it("reads only the fields of the decoded message, so a field spelled another way names no account", async () => {
       const wallet = createOrganizationWallet({ activatedAt: new Date() });
       const { service, txManagerService } = setupForTeam({ wallet, decode: vi.fn().mockReturnValue({ bid_id: { owner: wallet.address, dseq: 1 } }) });
@@ -2099,6 +2110,14 @@ describe(ManagedSignerService.name, () => {
 
       expect(deploymentSettingRepository.findFiledRowsOfWallet).toHaveBeenCalledWith(wallet, ["123"]);
       expect(deploymentSettingRepository.findFiledRowsOfWallet).toHaveBeenCalledWith(wallet, ["456"]);
+    });
+
+    it("checks the deployment a lease close is for", async () => {
+      const { service, deploymentSettingRepository, wallet } = setupForTeam({ organizationContext: projectScoped });
+
+      await expect(service.executeDerivedDecodedTxByUserId("member-1", [closeLeaseMessageFor(789)])).rejects.toMatchObject({ status: 403 });
+
+      expect(deploymentSettingRepository.findFiledRowsOfWallet).toHaveBeenCalledWith(wallet, ["789"]);
     });
 
     it("leaves a new deployment to the record that files it", async () => {
@@ -2476,6 +2495,13 @@ describe(ManagedSignerService.name, () => {
     return {
       typeUrl: MsgCancelLeaseResize.$type,
       value: MsgCancelLeaseResize.fromPartial({ id: { dseq, owner: "akash1test", gseq: 1, oseq: 1, provider: "akash1test" } })
+    };
+  }
+
+  function closeLeaseMessageFor(dseq: number): EncodeObject {
+    return {
+      typeUrl: MsgCloseLease.$type,
+      value: MsgCloseLease.fromPartial({ id: { dseq, owner: "akash1test", gseq: 1, oseq: 1, provider: "akash1test" } })
     };
   }
 

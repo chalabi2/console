@@ -1,6 +1,6 @@
 import { MsgAccountDeposit, MsgCreateCertificate } from "@akashnetwork/chain-sdk/private-types/akash.v1";
 import { MsgCloseDeployment, MsgCreateDeployment, MsgUpdateDeployment } from "@akashnetwork/chain-sdk/private-types/akash.v1beta4";
-import { MsgCancelLeaseResize, MsgCreateLease, MsgResizeLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
+import { MsgCancelLeaseResize, MsgCloseLease, MsgCreateLease, MsgResizeLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
 import { describe, expect, it } from "vitest";
 
 import { isAccountDepositMessage, isCreateDeploymentMessage, isNonSpendingMessage, isSpendingMessage, parseCoinAmount } from "./spending-messages";
@@ -29,7 +29,7 @@ describe("spending messages", () => {
   });
 
   describe(isNonSpendingMessage.name, () => {
-    it.each([MsgCloseDeployment, MsgUpdateDeployment, MsgCreateLease, MsgResizeLease, MsgCancelLeaseResize, MsgCreateCertificate])(
+    it.each([MsgCloseDeployment, MsgUpdateDeployment, MsgCreateLease, MsgResizeLease, MsgCancelLeaseResize, MsgCloseLease, MsgCreateCertificate])(
       "knows $$type moves no funds",
       type => {
         expect(isNonSpendingMessage({ typeUrl: `/${type.$type}`, value: {} })).toBe(true);

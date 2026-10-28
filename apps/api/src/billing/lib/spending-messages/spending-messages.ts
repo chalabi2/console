@@ -1,6 +1,6 @@
 import { MsgAccountDeposit, MsgCreateCertificate } from "@akashnetwork/chain-sdk/private-types/akash.v1";
 import { MsgCloseDeployment, MsgCreateDeployment, MsgUpdateDeployment } from "@akashnetwork/chain-sdk/private-types/akash.v1beta4";
-import { MsgCancelLeaseResize, MsgCreateLease, MsgResizeLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
+import { MsgCancelLeaseResize, MsgCloseLease, MsgCreateLease, MsgResizeLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
 import type { EncodeObject } from "@cosmjs/proto-signing";
 
 export type CreateDeploymentMessage = { typeUrl: string; value: MsgCreateDeployment };
@@ -18,6 +18,7 @@ const NON_SPENDING_TYPE_URLS: readonly string[] = [
   MsgCreateLease,
   MsgResizeLease,
   MsgCancelLeaseResize,
+  MsgCloseLease,
   MsgCreateCertificate
 ].map(type => `/${type.$type}`);
 

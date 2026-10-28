@@ -1,6 +1,6 @@
 import { MsgAccountDeposit, MsgCreateCertificate, Scope } from "@akashnetwork/chain-sdk/private-types/akash.v1";
 import { MsgCloseDeployment, MsgCreateDeployment, MsgUpdateDeployment } from "@akashnetwork/chain-sdk/private-types/akash.v1beta4";
-import { MsgCancelLeaseResize, MsgCreateLease, MsgResizeLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
+import { MsgCancelLeaseResize, MsgCloseLease, MsgCreateLease, MsgResizeLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
 import { LeaseHttpService } from "@akashnetwork/http-sdk";
 import { Trace, withSpan } from "@akashnetwork/instrumentation";
 import { EncodeObject, Registry } from "@cosmjs/proto-signing";
@@ -746,6 +746,7 @@ function existingDeploymentDseqOf(message: EncodeObject): string | undefined {
     case MsgUpdateDeployment.$type:
     case MsgResizeLease.$type:
     case MsgCancelLeaseResize.$type:
+    case MsgCloseLease.$type:
       return value?.id?.dseq?.toString();
     case MsgCreateLease.$type:
       return value?.bidId?.dseq?.toString();
