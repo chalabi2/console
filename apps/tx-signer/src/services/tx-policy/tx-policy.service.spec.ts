@@ -1,6 +1,6 @@
 import { DepositAuthorization, MsgAccountDeposit, MsgCreateCertificate, MsgMintACT, Scope } from "@akashnetwork/chain-sdk/private-types/akash.v1";
 import { MsgCreateDeployment } from "@akashnetwork/chain-sdk/private-types/akash.v1beta4";
-import { MsgCancelLeaseResize, MsgResizeLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
+import { MsgCancelLeaseResize, MsgCloseLease, MsgResizeLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
 import { BasicAllowance, type Coin, MsgGrant, MsgGrantAllowance, MsgRevoke, MsgRevokeAllowance } from "@akashnetwork/chain-sdk/private-types/cosmos.v1beta1";
 import type { EncodeObject } from "@cosmjs/proto-signing";
 import { describe, expect, it } from "vitest";
@@ -70,6 +70,33 @@ describe(TxPolicyService.name, () => {
     it("rejects canceling a resize that names no lease", () => {
       const { service } = setup();
       const message = encodeObject(`/${MsgCancelLeaseResize.$type}`, MsgCancelLeaseResize.fromPartial({}));
+
+      expect(() => service.assertActingOnBehalfOf([message], SIGNER_ADDRESS)).toThrow(/an unset address/);
+    });
+
+    it("accepts closing a lease on a deployment the signing wallet owns", () => {
+      const { service } = setup();
+      const message = encodeObject(
+        `/${MsgCloseLease.$type}`,
+        MsgCloseLease.fromPartial({ id: { owner: SIGNER_ADDRESS, dseq: 1, gseq: 1, oseq: 1, provider: OTHER_ADDRESS } })
+      );
+
+      expect(() => service.assertActingOnBehalfOf([message], SIGNER_ADDRESS)).not.toThrow();
+    });
+
+    it("rejects closing a lease on a deployment owned by another account", () => {
+      const { service } = setup();
+      const message = encodeObject(
+        `/${MsgCloseLease.$type}`,
+        MsgCloseLease.fromPartial({ id: { owner: OTHER_ADDRESS, dseq: 1, gseq: 1, oseq: 1, provider: SIGNER_ADDRESS } })
+      );
+
+      expect(() => service.assertActingOnBehalfOf([message], SIGNER_ADDRESS)).toThrow(/may not be signed by this wallet/);
+    });
+
+    it("rejects closing a lease that names no lease", () => {
+      const { service } = setup();
+      const message = encodeObject(`/${MsgCloseLease.$type}`, MsgCloseLease.fromPartial({}));
 
       expect(() => service.assertActingOnBehalfOf([message], SIGNER_ADDRESS)).toThrow(/an unset address/);
     });

@@ -1,6 +1,6 @@
 import { DepositAuthorization, MsgAccountDeposit, MsgCreateCertificate, MsgMintACT } from "@akashnetwork/chain-sdk/private-types/akash.v1";
 import { MsgCloseDeployment, MsgCreateDeployment, MsgUpdateDeployment } from "@akashnetwork/chain-sdk/private-types/akash.v1beta4";
-import { MsgCancelLeaseResize, MsgCreateLease, MsgResizeLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
+import { MsgCancelLeaseResize, MsgCloseLease, MsgCreateLease, MsgResizeLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
 import { BasicAllowance, type Coin, MsgGrant, MsgGrantAllowance, MsgRevoke, MsgRevokeAllowance } from "@akashnetwork/chain-sdk/private-types/cosmos.v1beta1";
 import type { EncodeObject } from "@cosmjs/proto-signing";
 import { Forbidden } from "http-errors";
@@ -32,6 +32,7 @@ const ACTOR_ADDRESS_READERS = {
   [`/${MsgCreateLease.$type}` as const]: readActorAddresses((m: MsgCreateLease) => [m.bidId?.owner]),
   [`/${MsgResizeLease.$type}` as const]: readActorAddresses((m: MsgResizeLease) => [m.id?.owner]),
   [`/${MsgCancelLeaseResize.$type}` as const]: readActorAddresses((m: MsgCancelLeaseResize) => [m.id?.owner]),
+  [`/${MsgCloseLease.$type}` as const]: readActorAddresses((m: MsgCloseLease) => [m.id?.owner]),
   [`/${MsgCreateCertificate.$type}` as const]: readActorAddresses((m: MsgCreateCertificate) => [m.owner]),
   [`/${MsgAccountDeposit.$type}` as const]: readActorAddresses((m: MsgAccountDeposit) => [m.signer, readEscrowAccountOwner(m.id?.xid)]),
   [`/${MsgGrantAllowance.$type}` as const]: readActorAddresses((m: MsgGrantAllowance) => [m.granter]),
