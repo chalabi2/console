@@ -229,6 +229,23 @@ describe(HardwareSection.name, () => {
     expect(DedicatedVolumesCard).not.toHaveBeenCalled();
   });
 
+  it("offers this service's S3 buckets beside its volumes, locked with the section", () => {
+    const BucketsCard = vi.fn(() => null);
+    const useFlag = vi.fn(() => true);
+
+    setup({ serviceIndex: 1, locked: true, dependencies: { BucketsCard, useFlag } });
+
+    expect(BucketsCard).toHaveBeenCalledWith(expect.objectContaining({ serviceIndex: 1, locked: true }), expect.anything());
+  });
+
+  it("offers no S3 buckets without dedicated volumes", () => {
+    const BucketsCard = vi.fn(() => null);
+
+    setup({ dependencies: { BucketsCard, useFlag: () => false } });
+
+    expect(BucketsCard).not.toHaveBeenCalled();
+  });
+
   function setup(input: { serviceIndex?: number; locked?: boolean; showsDeploymentLimit?: boolean; dependencies?: Partial<typeof DEPENDENCIES> }) {
     const dependencies = MockComponents(DEPENDENCIES, {
       useTrialGate: () => ({ isRestricted: false, isWalletReady: false }),

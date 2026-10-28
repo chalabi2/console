@@ -11,6 +11,36 @@ export interface BucketEnvVariable {
   isSecret: boolean;
 }
 
+type EnvRow = { id?: string; key: string; value?: string; isSecret?: boolean };
+
+/** The variables a connected bucket gives a service, which leave it together. */
+export const BUCKET_ENV_KEYS: readonly string[] = ["AWS_ENDPOINT_URL_S3", "AWS_REGION", "S3_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"];
+
+/** A key named after the service it was made for, so the bucket's page tells which deployment holds it. */
+export function bucketKeyNameFor(serviceName: string, suffix: string): string {
+  const base = serviceName
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .slice(0, 27)
+    .replace(/^-+|-+$/g, "");
+  return `${base || "service"}-${suffix}`;
+}
+
+/** A variable the service already has takes the new value and stays secret if it was. */
+export function withBucketEnv<T extends EnvRow>(env: readonly T[], variables: readonly BucketEnvVariable[], newId: () => string): Array<T | EnvRow> {
+  const next: Array<T | EnvRow> = [...env];
+  for (const variable of variables) {
+    const index = next.findIndex(row => row.key === variable.key);
+    if (index === -1) next.push({ id: newId(), ...variable });
+    else next[index] = { ...next[index], value: variable.value, isSecret: !!next[index].isSecret || variable.isSecret };
+  }
+  return next;
+}
+
+export function withoutBucketEnv<T extends EnvRow>(env: readonly T[]): T[] {
+  return env.filter(row => !BUCKET_ENV_KEYS.includes(row.key));
+}
+
 export function bucketKeyNameErrorOf(name: string, takenNames: readonly string[]): string | undefined {
   if (!BUCKET_KEY_NAME_PATTERN.test(name)) return "Use up to 32 lowercase letters, digits and dashes, starting and ending with a letter or digit.";
   if (takenNames.includes(name)) return `This bucket already has a key named ${name}.`;

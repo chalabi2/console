@@ -84,7 +84,7 @@ describe(ConfigurationPane.name, () => {
 
     /** GpuCard and DedicatedVolumesCard fetch via React Query; stub them so this pane test stays provider-free and asserts only the Memory/Storage values. */
     const HardwareSectionWithStubbedGpu: typeof HardwareSection = props => (
-      <HardwareSection {...props} dependencies={{ ...HARDWARE_DEPENDENCIES, GpuCard: () => null, DedicatedVolumesCard: () => null }} />
+      <HardwareSection {...props} dependencies={{ ...HARDWARE_DEPENDENCIES, GpuCard: () => null, DedicatedVolumesCard: () => null, BucketsCard: () => null }} />
     );
     const dependencies = { ...DEPENDENCIES, HardwareSection: HardwareSectionWithStubbedGpu, AdditionalSection: () => null };
 

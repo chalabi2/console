@@ -27,6 +27,8 @@ describe("useOwnedVolumes", () => {
           access: "mount",
           state: "available",
           provider: PROVIDER,
+          gseq: 1,
+          oseq: 2,
           mountedBy: undefined,
           reclamationDeadline: undefined,
           pricePerBlock: PRICE,
@@ -214,6 +216,8 @@ describe("useOwnedVolumes", () => {
   function buildLease(input: { dseq: string; state?: string; reclamation?: LeaseDto["reclamation"] }): LeaseDto {
     return Object.assign(mock<LeaseDto>(), {
       dseq: input.dseq,
+      gseq: 1,
+      oseq: 2,
       state: input.state ?? "active",
       provider: PROVIDER,
       price: PRICE,

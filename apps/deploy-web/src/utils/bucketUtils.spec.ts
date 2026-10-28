@@ -1,7 +1,16 @@
 import { AxiosError, AxiosHeaders } from "axios";
 import { describe, expect, it } from "vitest";
 
-import { bucketEnvOf, bucketKeyNameErrorOf, bucketRefusalOf, isBucketBeingProvisioned } from "./bucketUtils";
+import {
+  BUCKET_ENV_KEYS,
+  bucketEnvOf,
+  bucketKeyNameErrorOf,
+  bucketKeyNameFor,
+  bucketRefusalOf,
+  isBucketBeingProvisioned,
+  withBucketEnv,
+  withoutBucketEnv
+} from "./bucketUtils";
 
 describe("bucketUtils", () => {
   describe(bucketKeyNameErrorOf.name, () => {
@@ -70,6 +79,87 @@ describe("bucketUtils", () => {
       ]);
     });
   });
+
+  describe(bucketKeyNameFor.name, () => {
+    it("names a key after the service it was made for", () => {
+      expect(bucketKeyNameFor("web", "a1b2")).toBe("web-a1b2");
+    });
+
+    it("turns what a key name cannot hold into dashes", () => {
+      expect(bucketKeyNameFor("My_API.Server", "a1b2")).toBe("my-api-server-a1b2");
+    });
+
+    it("turns a run of what a key name cannot hold into one dash", () => {
+      expect(bucketKeyNameFor("my  api__server", "a1b2")).toBe("my-api-server-a1b2");
+    });
+
+    it("trims dashes the service name starts or ends with", () => {
+      expect(bucketKeyNameFor("--web--", "a1b2")).toBe("web-a1b2");
+    });
+
+    it("keeps a long service name within the provider's limit", () => {
+      const name = bucketKeyNameFor("a".repeat(40), "a1b2");
+
+      expect(name).toBe(`${"a".repeat(27)}-a1b2`);
+      expect(bucketKeyNameErrorOf(name, [])).toBeUndefined();
+    });
+
+    it("drops a dash the limit leaves at the end", () => {
+      expect(bucketKeyNameFor(`${"a".repeat(26)}-web`, "a1b2")).toBe(`${"a".repeat(26)}-a1b2`);
+    });
+
+    it.each(["", "___"])("names a key after no service as one for a service, from %o", serviceName => {
+      expect(bucketKeyNameFor(serviceName, "a1b2")).toBe("service-a1b2");
+    });
+  });
+
+  describe(withBucketEnv.name, () => {
+    it("adds the bucket's variables after the service's own", () => {
+      const env = withBucketEnv([{ id: "1", key: "PORT", value: "80", isSecret: false }], VARIABLES, idsFrom("new"));
+
+      expect(env).toEqual([
+        { id: "1", key: "PORT", value: "80", isSecret: false },
+        ...VARIABLES.map((variable, index) => ({ id: `new${index}`, ...variable }))
+      ]);
+    });
+
+    it("gives a variable the service has the bucket's value, in its place", () => {
+      const env = withBucketEnv([{ id: "1", key: "AWS_REGION", value: "us-east-1", isSecret: false }], VARIABLES, idsFrom("new"));
+
+      expect(env[0]).toEqual({ id: "1", key: "AWS_REGION", value: "default", isSecret: false });
+      expect(env).toHaveLength(VARIABLES.length);
+    });
+
+    it("keeps secret a variable the service kept secret", () => {
+      const env = withBucketEnv([{ id: "1", key: "S3_BUCKET", value: "old", isSecret: true }], VARIABLES, idsFrom("new"));
+
+      expect(env[0]).toEqual({ id: "1", key: "S3_BUCKET", value: "assets-0123", isSecret: true });
+    });
+
+    it("makes a variable secret when the bucket's is", () => {
+      const env = withBucketEnv([{ id: "1", key: "AWS_SECRET_ACCESS_KEY", value: "old" }], VARIABLES, idsFrom("new"));
+
+      expect(env[0]).toEqual({ id: "1", key: "AWS_SECRET_ACCESS_KEY", value: "SECRET", isSecret: true });
+    });
+  });
+
+  describe(withoutBucketEnv.name, () => {
+    it("takes every bucket variable out of the service, leaving its own", () => {
+      const env = [{ id: "1", key: "PORT", value: "80" }, ...BUCKET_ENV_KEYS.map((key, index) => ({ id: `b${index}`, key, value: "x" }))];
+
+      expect(withoutBucketEnv(env)).toEqual([{ id: "1", key: "PORT", value: "80" }]);
+    });
+  });
+
+  const VARIABLES = bucketEnvOf(
+    { endpoint: "https://s3.provider.example", region: "default", bucket: "assets-0123" },
+    { access_key_id: "AKID", secret_access_key: "SECRET" }
+  );
+
+  function idsFrom(prefix: string) {
+    let next = 0;
+    return () => `${prefix}${next++}`;
+  }
 
   function responseError(status: number, data: unknown) {
     return new AxiosError("Request failed", String(status), undefined, undefined, {

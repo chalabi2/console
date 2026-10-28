@@ -7,6 +7,7 @@ import { AddCreditsSheet } from "@src/components/auth/AddCreditsSheet/AddCredits
 import { useFlag } from "@src/hooks/useFlag";
 import { isTrialBlockedGpuSelection, isTrialGpuRestrictionActive } from "@src/utils/deploymentData/v1beta3";
 import { useRevalidateUniqueness } from "../../DeploymentPane/useRevalidateUniqueness/useRevalidateUniqueness";
+import { BucketsCard } from "../BucketsCard/BucketsCard";
 import { computeResourcesTooltip, presetsTooltip } from "../cardTooltips";
 import { ComputeResourcesCard } from "../ComputeResourcesCard/ComputeResourcesCard";
 import { DedicatedVolumesCard } from "../DedicatedVolumesCard/DedicatedVolumesCard";
@@ -37,6 +38,7 @@ export const DEPENDENCIES = {
   RamStorageCard,
   PersistentStorageCard,
   DedicatedVolumesCard,
+  BucketsCard,
   SecurityCard,
   TrialResourceLimitHint,
   AddCreditsSheet,
@@ -114,6 +116,7 @@ export const HardwareSection: FC<Props> = ({ serviceIndex, locked = false, shows
         <d.PersistentStorageCard serviceIndex={serviceIndex} locked={locked} />
 
         {canMountVolumes && <d.DedicatedVolumesCard serviceIndex={serviceIndex} locked={locked} />}
+        {canMountVolumes && <d.BucketsCard serviceIndex={serviceIndex} locked={locked} />}
       </div>
 
       <d.AddCreditsSheet open={isUnlockOpen} onOpenChange={setIsUnlockOpen} onDone={closeUnlock} />

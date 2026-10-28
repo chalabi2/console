@@ -29,6 +29,8 @@ export interface OwnedVolume {
   state: VolumeState;
   /** The provider holding the volume's lease, which is the only one that can run a service mounting it. */
   provider?: string;
+  gseq?: number;
+  oseq?: number;
   /** The deployment that mounts the volume already, since a volume takes one attachment at a time. */
   mountedBy?: string;
   reclamationDeadline?: Date;
@@ -82,6 +84,8 @@ export function ownedVolumesOf(deployments: DeploymentDto[], leases: LeaseDto[])
         access: isBucketVolume(volume) ? "bucket" : "mount",
         state: volumeStateOf(lease, mounting),
         provider: lease?.provider,
+        gseq: lease?.gseq,
+        oseq: lease?.oseq,
         mountedBy: mounting,
         reclamationDeadline: (lease && getReclamationDeadline(lease)) ?? undefined,
         pricePerBlock: lease?.price,
