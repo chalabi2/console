@@ -15,7 +15,7 @@
     "validate:types": "tsc --noEmit -p tsconfig.build.json"
   },
   "dependencies": {
-    "@akashnetwork/chain-sdk": "file:../../vendor/akashnetwork-chain-sdk-1.0.0-alpha.46.aep87.3.tgz",
+    "@akashnetwork/chain-sdk": "file:../../vendor/akashnetwork-chain-sdk-1.0.0-alpha.46.storage-market.3.tgz",
     "@akashnetwork/env-loader": "*",
     "@akashnetwork/logging": "*",
     "@akashnetwork/network-store": "*",
