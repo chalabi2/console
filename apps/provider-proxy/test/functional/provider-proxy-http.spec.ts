@@ -488,6 +488,39 @@ describe("Provider HTTP proxy", () => {
     expect(body).toBe("Success");
   });
 
+  it.each(["POST", "DELETE"])("sends a %s the provider answered with 5xx only once", async method => {
+    const providerAddress = generateBech32();
+    const validCertPair = await createX509CertPair({
+      commonName: providerAddress
+    });
+
+    let requestsReceived = 0;
+    const { providerUrl } = await startProviderServer({
+      certPair: validCertPair,
+      handlers: {
+        "/bucket/keys"(_, res) {
+          requestsReceived++;
+          res.writeHead(502);
+          res.end();
+        }
+      }
+    });
+    const chainServer = await startChainApiServer([validCertPair.cert]);
+    await startServer({ REST_API_NODE_URL: chainServer.url });
+
+    const response = await request("/", {
+      method: "POST",
+      body: JSON.stringify({
+        method,
+        url: `${providerUrl}/bucket/keys`,
+        providerAddress
+      })
+    });
+
+    expect(response.status).toBe(502);
+    expect(requestsReceived).toBe(1);
+  });
+
   it("retries on provider host being slow", async () => {
     const providerAddress = generateBech32();
     const validCertPair = await createX509CertPair({

@@ -6,7 +6,8 @@ import type { ReadableStreamDefaultReader } from "stream/web";
 
 import type { AppContext } from "../types/AppContext";
 import { toErrno, toProviderErrorCategory } from "../utils/errno";
-import { canRetryOnError, httpRetry } from "../utils/retry";
+import { shouldResendAfterError, shouldResendProxyRequest } from "../utils/proxyRetry";
+import { httpRetry } from "../utils/retry";
 import { addProviderAuthValidation, providerRequestSchema } from "../utils/schema";
 
 const RequestPayload = addProviderAuthValidation(
@@ -116,12 +117,8 @@ export async function proxyProviderRequest(ctx: AppContext): Promise<Response | 
         signal: clientAbortSignal
       }),
     {
-      retryIf(result) {
-        const isServerError = result.ok && (!result.response.statusCode || result.response.statusCode >= 500);
-        const isConnectionError =
-          result.ok === false && result.code === "connectionError" && !result.shortCircuited && !result.repeatedFailure && canRetryOnError(result.error);
-        return !clientAbortSignal.aborted && (isServerError || isConnectionError);
-      },
+      retryIf: result => !clientAbortSignal.aborted && shouldResendProxyRequest(method, result),
+      retryOnError: error => !clientAbortSignal.aborted && shouldResendAfterError(method, error),
       logger: ctx.get("container").appLogger
     }
   );

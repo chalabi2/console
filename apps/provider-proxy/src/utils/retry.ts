@@ -2,11 +2,12 @@ import type { LoggerService } from "@akashnetwork/logging";
 import { setTimeout } from "timers/promises";
 
 export const httpRetry = <T>(callback: () => Promise<T>, options: HttpRetryOptions<T>): Promise<T> => {
-  return retryWithBackoff(callback, options.retryIf, options.maxRetries || 3, 0, options.logger);
+  return retryWithBackoff(callback, options.retryIf, options.retryOnError ?? canRetryOnError, options.maxRetries || 3, 0, options.logger);
 };
 
 export interface HttpRetryOptions<T> {
   retryIf: (response: T) => boolean;
+  retryOnError?: (error: unknown) => boolean;
   maxRetries?: number;
   logger?: LoggerService;
 }
@@ -14,6 +15,7 @@ export interface HttpRetryOptions<T> {
 async function retryWithBackoff<T>(
   callback: () => Promise<T>,
   shouldRetryOnResponse: HttpRetryOptions<T>["retryIf"],
+  shouldRetryOnError: (error: unknown) => boolean,
   maxRetries: number,
   attempt: number,
   logger?: LoggerService
@@ -46,11 +48,11 @@ async function retryWithBackoff<T>(
         callback: callbackName,
         error: "Callback result requires retry"
       });
-      return retryWithBackoff(callback, shouldRetryOnResponse, maxRetries, attempt + 1, logger);
+      return retryWithBackoff(callback, shouldRetryOnResponse, shouldRetryOnError, maxRetries, attempt + 1, logger);
     }
     return response;
   } catch (error: unknown) {
-    if (attempt < maxRetries && canRetryOnError(error)) {
+    if (attempt < maxRetries && shouldRetryOnError(error)) {
       logger?.warn({
         event: "RUN_CALLBACK_FAILED",
         attempt: attempt + 1,
@@ -58,7 +60,7 @@ async function retryWithBackoff<T>(
         callback: callbackName,
         error
       });
-      return retryWithBackoff(callback, shouldRetryOnResponse, maxRetries, attempt + 1, logger);
+      return retryWithBackoff(callback, shouldRetryOnResponse, shouldRetryOnError, maxRetries, attempt + 1, logger);
     }
 
     if (attempt >= maxRetries) {
@@ -73,11 +75,20 @@ const isRetriableError = (code: string) =>
   code === "ECONNREFUSED" || code === "ECONNRESET" || code === "ERR_TLS_SESSION_REJECTED" || code === "ETIMEDOUT" || code === "ESOCKETTIMEDOUT";
 
 export function canRetryOnError(error: unknown): boolean {
-  if (!error) return false;
+  const code = errorCodeOf(error);
+  return code !== undefined && isRetriableError(code);
+}
+
+export function isConnectionRefused(error: unknown): boolean {
+  return errorCodeOf(error) === "ECONNREFUSED";
+}
+
+function errorCodeOf(error: unknown): string | undefined {
+  if (!error) return undefined;
 
   if (Object.hasOwn(error as Error, "code")) {
-    return isRetriableError((error as { code: string }).code);
+    return (error as { code: string }).code;
   }
 
-  return canRetryOnError((error as Error).cause);
+  return errorCodeOf((error as Error).cause);
 }
