@@ -1067,6 +1067,68 @@ describe(ProviderProxyService.name, () => {
     });
   });
 
+  describe("fetchBucketInfo", () => {
+    it("reads the lease's bucket with a jwt", async () => {
+      const info = { bucket: "assets-0123", endpoint: "https://s3.provider.test", region: "default", size_bytes: 1, used_bytes: 0, keys: [] };
+      const httpClient = mock<HttpClient>({ post: vi.fn().mockResolvedValue({ data: info }) } as unknown as HttpClient);
+      const { service } = setup({ httpClient });
+
+      const result = await service.fetchBucketInfo(bucketLease());
+
+      const [, payload] = (httpClient.post as Mock).mock.calls[0];
+      expect(payload).toEqual(
+        expect.objectContaining({
+          method: "GET",
+          url: "https://provider.test/lease/123/1/2/bucket",
+          providerAddress: "akash1provider",
+          auth: { type: "jwt", token: "bucket-jwt" }
+        })
+      );
+      expect(result).toEqual(info);
+    });
+  });
+
+  describe("createBucketKey", () => {
+    it("asks the provider for a key with the name and access chosen", async () => {
+      const key = { name: "app", access: "read", access_key_id: "AKID", secret_access_key: "SECRET" };
+      const httpClient = mock<HttpClient>({ post: vi.fn().mockResolvedValue({ data: key }) } as unknown as HttpClient);
+      const { service } = setup({ httpClient });
+
+      const result = await service.createBucketKey({ ...bucketLease(), name: "app", access: "read" });
+
+      const [, payload] = (httpClient.post as Mock).mock.calls[0];
+      expect(payload).toEqual(
+        expect.objectContaining({ method: "POST", url: "https://provider.test/lease/123/1/2/bucket/keys", auth: { type: "jwt", token: "bucket-jwt" } })
+      );
+      expect(JSON.parse(payload.body)).toEqual({ name: "app", access: "read" });
+      expect(result).toEqual(key);
+    });
+  });
+
+  describe("revokeBucketKey", () => {
+    it("deletes the named key, escaping its name in the path", async () => {
+      const httpClient = mock<HttpClient>({ post: vi.fn().mockResolvedValue({ data: "" }) } as unknown as HttpClient);
+      const { service } = setup({ httpClient });
+
+      await service.revokeBucketKey({ ...bucketLease(), name: "a/b" });
+
+      const [, payload] = (httpClient.post as Mock).mock.calls[0];
+      expect(payload).toEqual(
+        expect.objectContaining({ method: "DELETE", url: "https://provider.test/lease/123/1/2/bucket/keys/a%2Fb", auth: { type: "jwt", token: "bucket-jwt" } })
+      );
+    });
+  });
+
+  function bucketLease() {
+    return {
+      provider: { owner: "akash1provider", hostUri: "https://provider.test" },
+      dseq: "123",
+      gseq: 1,
+      oseq: 2,
+      ensureToken: () => Promise.resolve("bucket-jwt")
+    };
+  }
+
   function setup(input?: {
     httpClient?: HttpClient;
     logger?: LoggerService;

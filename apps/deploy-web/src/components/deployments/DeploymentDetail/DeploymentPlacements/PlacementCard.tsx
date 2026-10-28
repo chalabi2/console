@@ -14,11 +14,12 @@ import { isLeaseLive } from "@src/utils/leaseUtils";
 import { providerDisplayName } from "@src/utils/providerUtils";
 import { isClosingVolume, isProviderReclaimed, isReclaiming } from "@src/utils/reclamationUtils";
 import { UrlService } from "@src/utils/urlUtils";
-import { volumeClassOf, volumeOf } from "@src/utils/volumeUtils";
+import { isBucketVolume, volumeClassOf, volumeOf } from "@src/utils/volumeUtils";
 import { ConfidentialComputeResources } from "../../ConfidentialComputeResources";
 import { DownloadAttestationEvidence } from "../../DownloadAttestationEvidence";
 import { ReclamationCard } from "../../ReclamationCard/ReclamationCard";
 import { StatusBadge } from "../DeploymentStatusBadge";
+import { BucketAccess } from "./BucketAccess/BucketAccess";
 import type { ManifestServiceDetail } from "./placementModel";
 import { getPlacementGpuModels, getPlacementName, getProviderRegion, resolveLeaseGpus } from "./placementModel";
 import { PlacementServiceRow } from "./PlacementServiceRow";
@@ -32,7 +33,8 @@ export const DEPENDENCIES = {
   ConfidentialComputeResources,
   DownloadAttestationEvidence,
   PlacementServiceRow,
-  VolumeAttachment
+  VolumeAttachment,
+  BucketAccess
 };
 
 export interface PlacementCardProps {
@@ -148,7 +150,11 @@ export const PlacementCard: FC<PlacementCardProps> = ({
       )}
 
       {volume ? (
-        lease.state === "active" && <d.VolumeAttachment vid={volume.vid} owner={lease.owner} dseq={dseq} />
+        isBucketVolume(volume) ? (
+          isLeaseLive(lease) && <d.BucketAccess lease={lease} provider={provider} />
+        ) : (
+          lease.state === "active" && <d.VolumeAttachment vid={volume.vid} owner={lease.owner} dseq={dseq} />
+        )
       ) : (
         <div className="p-6">
           <div className="mb-3 flex items-center justify-between gap-3">

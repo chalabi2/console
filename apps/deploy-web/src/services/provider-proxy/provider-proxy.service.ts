@@ -4,6 +4,7 @@ import type { AxiosResponse } from "axios";
 import saveFileInBrowser from "file-saver";
 
 import { WebsocketSession } from "@src/lib/websocket/WebsocketSession";
+import type { BucketInfo, BucketKey, BucketKeyAccess } from "@src/types/bucket";
 import type { AttestationEvidence, AttestationQuote } from "@src/utils/confidentialCompute";
 import { generateAttestationNonce } from "@src/utils/confidentialCompute";
 import { toBase64 } from "@src/utils/encoding";
@@ -65,6 +66,32 @@ export class ProviderProxyService {
       timeout: ProviderProxyService.ATTESTATION_QUOTE_TIMEOUT
     });
     return { nonce, quote: response.data };
+  }
+
+  async fetchBucketInfo(input: BucketLeaseRequest): Promise<BucketInfo> {
+    const response = await this.request<BucketInfo>(bucketPathOf(input), {
+      credentials: { type: "jwt", value: await input.ensureToken() },
+      providerIdentity: input.provider
+    });
+    return response.data;
+  }
+
+  async createBucketKey(input: BucketLeaseRequest & { name: string; access: BucketKeyAccess }): Promise<BucketKey> {
+    const response = await this.request<BucketKey>(`${bucketPathOf(input)}/keys`, {
+      method: "POST",
+      body: JSON.stringify({ name: input.name, access: input.access }),
+      credentials: { type: "jwt", value: await input.ensureToken() },
+      providerIdentity: input.provider
+    });
+    return response.data;
+  }
+
+  async revokeBucketKey(input: BucketLeaseRequest & { name: string }): Promise<void> {
+    await this.request(`${bucketPathOf(input)}/keys/${encodeURIComponent(input.name)}`, {
+      method: "DELETE",
+      credentials: { type: "jwt", value: await input.ensureToken() },
+      providerIdentity: input.provider
+    });
   }
 
   async downloadLogs(input: {
@@ -386,4 +413,16 @@ export interface K8sEventMessage {
   service: string;
   reportingController: string;
   reportingInstance: string;
+}
+
+export interface BucketLeaseRequest {
+  provider: ProviderIdentity;
+  dseq: string;
+  gseq: number;
+  oseq: number;
+  ensureToken: () => Promise<string>;
+}
+
+function bucketPathOf(lease: Pick<BucketLeaseRequest, "dseq" | "gseq" | "oseq">): string {
+  return `/lease/${lease.dseq}/${lease.gseq}/${lease.oseq}/bucket`;
 }

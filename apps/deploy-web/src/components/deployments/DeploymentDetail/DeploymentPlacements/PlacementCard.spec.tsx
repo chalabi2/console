@@ -8,6 +8,7 @@ import type { DeploymentGroup, LeaseDto } from "@src/types/deployment";
 import type { ApiProviderList } from "@src/types/provider";
 import { formatByteSize } from "@src/utils/unitUtils";
 import type { GroupVolume } from "@src/utils/volumeUtils";
+import type { BucketAccess } from "./BucketAccess/BucketAccess";
 import { DEPENDENCIES, PlacementCard } from "./PlacementCard";
 import type { ManifestServiceDetail } from "./placementModel";
 import type { VolumeAttachmentProps } from "./VolumeAttachment";
@@ -15,6 +16,8 @@ import type { VolumeAttachmentProps } from "./VolumeAttachment";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MockComponents } from "@tests/unit/mocks";
+
+type BucketAccessProps = Parameters<typeof BucketAccess>[0];
 
 describe(PlacementCard.name, () => {
   it("renders the placement name, provider region and provider name", () => {
@@ -237,6 +240,40 @@ describe(PlacementCard.name, () => {
 
       expect(VolumeAttachment.mock.calls[0][0]).toEqual(expect.objectContaining({ vid: "data", owner: "akash1owner", dseq: "123" }));
       expect(screen.queryByText("Services in this placement")).not.toBeInTheDocument();
+    });
+
+    it("offers a bucket's access keys instead of an attachment", () => {
+      const VolumeAttachment = vi.fn((_props: VolumeAttachmentProps) => <div>volume-attachment</div>);
+      const BucketAccess = vi.fn((_props: BucketAccessProps) => <div>bucket-access</div>);
+      const lease = buildLease({ volume: { vid: "assets", access: "bucket" } });
+      const provider = buildProvider();
+      setup({ lease, provider, dependencies: { VolumeAttachment, BucketAccess } });
+
+      expect(BucketAccess.mock.calls[0][0]).toEqual(expect.objectContaining({ lease, provider }));
+      expect(VolumeAttachment).not.toHaveBeenCalled();
+      expect(screen.queryByText("Services in this placement")).not.toBeInTheDocument();
+    });
+
+    it("keeps offering a closing bucket's keys, which can still be revoked", () => {
+      const BucketAccess = vi.fn((_props: BucketAccessProps) => <div>bucket-access</div>);
+      const lease = buildLease({ volume: { vid: "assets", access: "bucket" }, state: "reclaiming", reclamation: { reason: "reason_volume_closed_retain" } });
+      setup({ lease, dependencies: { BucketAccess } });
+
+      expect(BucketAccess).toHaveBeenCalled();
+    });
+
+    it("offers no keys of a bucket whose lease closed", () => {
+      const BucketAccess = vi.fn((_props: BucketAccessProps) => <div>bucket-access</div>);
+      setup({ lease: buildLease({ volume: { vid: "assets", access: "bucket" }, state: "closed" }), dependencies: { BucketAccess } });
+
+      expect(BucketAccess).not.toHaveBeenCalled();
+    });
+
+    it("offers no access keys for a disk", () => {
+      const BucketAccess = vi.fn((_props: BucketAccessProps) => <div>bucket-access</div>);
+      setup({ lease: buildLease({ volume: { vid: "data" } }), dependencies: { BucketAccess } });
+
+      expect(BucketAccess).not.toHaveBeenCalled();
     });
   });
 

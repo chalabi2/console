@@ -42,6 +42,10 @@ export const LEASE_SHELL_SCOPE: readonly JwtTokenAccessScope[] = ["shell"];
 
 export const LEASE_ATTESTATION_SCOPE: readonly JwtTokenAccessScope[] = ["attestation"];
 
+export const BUCKET_SCOPE: readonly JwtTokenAccessScope[] = ["bucket"];
+
+export const BUCKET_KEYS_SCOPE: readonly JwtTokenAccessScope[] = ["bucket-keys"];
+
 /** The only actions the API grants a team viewer, none of which changes a lease. */
 const LEASE_READ_SCOPE: readonly JwtTokenAccessScope[] = ["status", "events", "logs"];
 
