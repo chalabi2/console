@@ -18,7 +18,7 @@ const DenominatedValueSchema = z.object({
   amount: z.string()
 });
 
-/** A mount of a volume leased by its own deployment (AEP-87), named by that deployment's group. */
+/** A mount of a volume leased by its own deployment (decoupled storage market), named by that deployment's group. */
 const VolumeRefSchema = z.object({
   owner: z.string(),
   dseq: z.string(),

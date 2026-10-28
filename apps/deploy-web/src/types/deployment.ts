@@ -136,10 +136,10 @@ interface DeploymentGroup_v2 {
         denom: string;
         amount: string;
       };
-      /** The volumes this unit mounts, each leased as its own deployment (AEP-87). */
+      /** The volumes this unit mounts, each leased as its own deployment (decoupled storage market). */
       volumes?: Array<{ owner: string; dseq: string; gseq: number; name: string }> | null;
     }>;
-    /** Present on a volume's own group (AEP-87), which leases storage and runs no workload. */
+    /** Present on a volume's own group (decoupled storage market), which leases storage and runs no workload. */
     volume?: { vid: string; reclaim?: string; retention?: string; access?: string } | null;
   };
   created_at: string;
@@ -214,10 +214,10 @@ interface DeploymentGroup_v3 {
         denom: string;
         amount: string;
       };
-      /** The volumes this unit mounts, each leased as its own deployment (AEP-87). */
+      /** The volumes this unit mounts, each leased as its own deployment (decoupled storage market). */
       volumes?: Array<{ owner: string; dseq: string; gseq: number; name: string }> | null;
     }>;
-    /** Present on a volume's own group (AEP-87), which leases storage and runs no workload. */
+    /** Present on a volume's own group (decoupled storage market), which leases storage and runs no workload. */
     volume?: { vid: string; reclaim?: string; retention?: string; access?: string } | null;
   };
   created_at: string;
