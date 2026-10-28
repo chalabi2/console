@@ -39,7 +39,7 @@ import { persistentStorageTypes, storageUnits } from "@src/utils/akash/units";
 import { PRICE_DISPLAY_PRECISION, udenomToDenom } from "@src/utils/mathHelpers";
 import { providerDisplayName } from "@src/utils/providerUtils";
 import { defaultPricing } from "@src/utils/sdl/data";
-import { volumeSdlOf } from "@src/utils/sdl/volumeSdl";
+import { type VolumeAccess, volumeSdlOf } from "@src/utils/sdl/volumeSdl";
 import { useCreateVolume, type VolumeBid } from "./useCreateVolume";
 
 export const DEPENDENCIES = { useCreateVolume, useWallet, useProvidersByAddresses, useHasWaited, NumberUnitInput, PricePerTimeUnit };
@@ -60,6 +60,18 @@ const AFTER_CLOSE_OPTIONS = [
   { value: "720h", label: "Keep its data for 30 days" }
 ];
 
+const KIND_OPTIONS: ReadonlyArray<{ access: VolumeAccess; title: string; description: string }> = [
+  { access: "mount", title: "Disk", description: "Mounted by your deployments on the provider you lease it from" },
+  { access: "bucket", title: "S3 bucket", description: "Reached over S3 by your deployments on any provider, with its access keys" }
+];
+
+const NO_BID_HINTS: Record<VolumeAccess, string> = {
+  mount:
+    "No provider has bid yet. Providers cap how long they keep a volume's data after it closes and how large a volume they take, so a shorter period after close or a smaller size reaches more of them.",
+  bucket:
+    "No provider has bid yet. Only providers that serve S3 buckets bid on one, and they cap how long they keep a bucket's data after it closes and how large a bucket they take, so a shorter period after close or a smaller size reaches more of them."
+};
+
 export interface CreatedVolume {
   name: string;
   owner: string;
@@ -72,10 +84,20 @@ type Props = {
   placement: PlacementType;
   takenNames: string[];
   onCreated: (volume: CreatedVolume) => void;
+  /** Off where the created volume is mounted right away, which a bucket cannot be. */
+  offersBuckets?: boolean;
   dependencies?: typeof DEPENDENCIES;
 };
 
-export const CreateVolumeDialog: FC<Props> = ({ open, onOpenChange, placement, takenNames, onCreated, dependencies: d = DEPENDENCIES }) => {
+export const CreateVolumeDialog: FC<Props> = ({
+  open,
+  onOpenChange,
+  placement,
+  takenNames,
+  onCreated,
+  offersBuckets = false,
+  dependencies: d = DEPENDENCIES
+}) => {
   const descriptionId = useId();
   const { address } = d.useWallet();
   const { step, bids, create, lease, abandon } = d.useCreateVolume();
@@ -84,11 +106,14 @@ export const CreateVolumeDialog: FC<Props> = ({ open, onOpenChange, placement, t
   const [unit, setUnit] = useState("Gi");
   const [storageClass, setStorageClass] = useState("beta3");
   const [afterClose, setAfterClose] = useState("168h");
+  const [access, setAccess] = useState<VolumeAccess>("mount");
   const [provider, setProvider] = useState("");
   const { data: providers } = d.useProvidersByAddresses(bids.map(bid => bid.provider));
 
   const nameError = volumeNameErrorOf(name, takenNames);
   const isBusy = step.kind === "creating" || step.kind === "leasing";
+  const isBucket = access === "bucket";
+  const noun = isBucket ? "bucket" : "volume";
 
   const createTheVolume = () => {
     void create({
@@ -100,7 +125,8 @@ export const CreateVolumeDialog: FC<Props> = ({ open, onOpenChange, placement, t
         storageClass,
         retention: afterClose === DELETE_AT_CLOSE ? undefined : afterClose,
         placement,
-        pricing: defaultPricing()
+        pricing: defaultPricing(),
+        access
       })
     });
   };
@@ -127,22 +153,42 @@ export const CreateVolumeDialog: FC<Props> = ({ open, onOpenChange, placement, t
     <DialogV2 open={open} onOpenChange={next => (next ? onOpenChange(true) : !isBusy && closeWithoutAVolume())}>
       <DialogV2Content className="max-w-lg" aria-describedby={descriptionId}>
         <DialogV2Header>
-          <DialogV2Title>Create a volume</DialogV2Title>
+          <DialogV2Title>Create a {noun}</DialogV2Title>
           <DialogV2Description id={descriptionId}>
-            A volume is leased as its own deployment, so its data outlives the deployments that mount it. Whatever mounts it runs on the provider you lease it
-            from.
+            {isBucket
+              ? "A bucket is leased as its own deployment and served over S3, so your deployments on any provider can use it with one of its access keys."
+              : "A volume is leased as its own deployment, so its data outlives the deployments that mount it. Whatever mounts it runs on the provider you lease it from."}
           </DialogV2Description>
         </DialogV2Header>
 
         <DialogV2Body className="flex flex-col gap-4">
           {(step.kind === "editing" || step.kind === "creating") && (
             <>
+              {offersBuckets && (
+                <Field className="gap-2">
+                  <FieldLabel>Kind</FieldLabel>
+                  <FieldContent>
+                    <RadioGroup
+                      aria-label="Kind"
+                      value={access}
+                      onValueChange={value => setAccess(value === "bucket" ? "bucket" : "mount")}
+                      disabled={isBusy}
+                      className="flex flex-col gap-2"
+                    >
+                      {KIND_OPTIONS.map(option => (
+                        <KindOption key={option.access} id={`${descriptionId}-${option.access}`} {...option} />
+                      ))}
+                    </RadioGroup>
+                  </FieldContent>
+                </Field>
+              )}
+
               <Field className="gap-2">
                 <FieldLabel htmlFor={`${descriptionId}-name`}>Name</FieldLabel>
                 <FieldContent>
                   <Input
                     id={`${descriptionId}-name`}
-                    aria-label="Volume name"
+                    aria-label={isBucket ? "Bucket name" : "Volume name"}
                     value={name}
                     onChange={event => setName(event.target.value)}
                     disabled={isBusy}
@@ -209,7 +255,10 @@ export const CreateVolumeDialog: FC<Props> = ({ open, onOpenChange, placement, t
 
           {(step.kind === "choosing" || step.kind === "leasing") && (
             <>
-              <p className="text-sm text-muted-foreground">Choose the provider to lease {name} from. Deployments that mount it run there too.</p>
+              <p className="text-sm text-muted-foreground">
+                Choose the provider to lease {name} from.{" "}
+                {isBucket ? "Your deployments on any provider can use it." : "Deployments that mount it run there too."}
+              </p>
               {bids.length === 0 ? (
                 <>
                   <p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -217,10 +266,7 @@ export const CreateVolumeDialog: FC<Props> = ({ open, onOpenChange, placement, t
                   </p>
                   {hasWaitedForBids && (
                     <div className="flex flex-col items-start gap-2 text-sm text-muted-foreground">
-                      <p>
-                        No provider has bid yet. Providers cap how long they keep a volume&apos;s data after it closes and how large a volume they take, so a
-                        shorter period after close or a smaller size reaches more of them.
-                      </p>
+                      <p>{NO_BID_HINTS[access]}</p>
                       <Button variant="outline" size="sm" onClick={changeSettings}>
                         Change settings
                       </Button>
@@ -251,11 +297,11 @@ export const CreateVolumeDialog: FC<Props> = ({ open, onOpenChange, placement, t
           </Button>
           {step.kind === "editing" || step.kind === "creating" ? (
             <Button type="button" onClick={createTheVolume} disabled={isBusy || !!nameError || !size || size <= 0}>
-              {step.kind === "creating" ? "Creating…" : "Create volume"}
+              {step.kind === "creating" ? "Creating…" : `Create ${noun}`}
             </Button>
           ) : (
             <Button type="button" onClick={leaseTheVolume} disabled={isBusy || !provider}>
-              {step.kind === "leasing" ? "Leasing…" : "Lease volume"}
+              {step.kind === "leasing" ? "Leasing…" : `Lease ${noun}`}
             </Button>
           )}
         </DialogV2Footer>
@@ -263,6 +309,19 @@ export const CreateVolumeDialog: FC<Props> = ({ open, onOpenChange, placement, t
     </DialogV2>
   );
 };
+
+const KindOption: FC<{ id: string; access: VolumeAccess; title: string; description: string }> = ({ id, access, title, description }) => (
+  <Label
+    htmlFor={id}
+    className="flex cursor-pointer items-center gap-2.5 rounded-[10px] border border-border p-3 font-normal has-[[data-state=checked]]:border-foreground has-[[data-state=checked]]:bg-muted/40"
+  >
+    <RadioGroupItem id={id} value={access} className="shrink-0" />
+    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <span className="text-sm font-semibold">{title}</span>
+      <span className="text-xs text-muted-foreground">{description}</span>
+    </span>
+  </Label>
+);
 
 const BidOption: FC<{ id: string; bid: VolumeBid; provider?: ApiProviderList; dependencies: typeof DEPENDENCIES }> = ({
   id,

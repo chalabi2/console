@@ -12,6 +12,11 @@ export function volumeOf(group: DeploymentGroup | undefined): GroupVolume | unde
   return typeof volume?.vid === "string" ? volume : undefined;
 }
 
+/** A bucket is served over S3 to deployments on any provider, so nothing mounts it. */
+export function isBucketVolume(volume: Pick<GroupVolume, "access"> | undefined): boolean {
+  return volume?.access === "bucket";
+}
+
 export function deploymentVolumeOf(groups: DeploymentGroup[] | undefined): GroupVolume | undefined {
   return groups?.map(volumeOf).find(volume => volume !== undefined);
 }

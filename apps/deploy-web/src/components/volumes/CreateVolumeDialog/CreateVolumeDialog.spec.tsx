@@ -50,6 +50,84 @@ describe(CreateVolumeDialog.name, () => {
     expect(yaml.load(create.mock.calls[0][0].sdl)).toMatchObject({ volumes: { data: { class: "beta2" } } });
   });
 
+  it("offers no choice of kind where what it creates gets mounted", () => {
+    setup({});
+
+    expect(screen.queryByRole("radiogroup", { name: "Kind" })).not.toBeInTheDocument();
+  });
+
+  it("creates a disk unless a bucket is chosen", async () => {
+    const { create } = setup({ offersBuckets: true });
+
+    expect(screen.getByRole("radio", { name: /Disk/ })).toBeChecked();
+    await userEvent.click(screen.getByRole("button", { name: "Create volume" }));
+
+    expect(yaml.load(create.mock.calls[0][0].sdl)).not.toHaveProperty(["volumes", "data", "access"]);
+  });
+
+  it("creates an S3 bucket when chosen", async () => {
+    const { create } = setup({ offersBuckets: true });
+
+    await userEvent.click(screen.getByRole("radio", { name: /S3 bucket/ }));
+    await userEvent.clear(screen.getByLabelText("Bucket name"));
+    await userEvent.type(screen.getByLabelText("Bucket name"), "assets");
+    await userEvent.click(screen.getByRole("button", { name: "Create bucket" }));
+
+    expect(create).toHaveBeenCalledWith({ name: "assets", sdl: expect.any(String) });
+    expect(yaml.load(create.mock.calls[0][0].sdl)).toMatchObject({ volumes: { assets: { access: "bucket", class: "beta3" } } });
+  });
+
+  it("goes back to a disk when chosen again", async () => {
+    const { create } = setup({ offersBuckets: true });
+
+    await userEvent.click(screen.getByRole("radio", { name: /S3 bucket/ }));
+    await userEvent.click(screen.getByRole("radio", { name: /Disk/ }));
+    expect(screen.getByRole("radio", { name: /Disk/ })).toBeChecked();
+    await userEvent.click(screen.getByRole("button", { name: "Create volume" }));
+
+    expect(yaml.load(create.mock.calls[0][0].sdl)).not.toHaveProperty(["volumes", "data", "access"]);
+  });
+
+  it("describes a disk as outliving the deployments that mount it", () => {
+    setup({});
+
+    expect(screen.getByText(/so its data outlives the deployments that mount it\. Whatever mounts it runs on the provider/)).toBeInTheDocument();
+  });
+
+  it("says a disk's deployments run where it is leased while providers bid", () => {
+    setup({ step: { kind: "choosing", dseq: DSEQ } });
+
+    expect(screen.getByText("Choose the provider to lease data from. Deployments that mount it run there too.")).toBeInTheDocument();
+  });
+
+  it("describes a bucket as reachable from any provider", async () => {
+    setup({ offersBuckets: true });
+
+    await userEvent.click(screen.getByRole("radio", { name: /S3 bucket/ }));
+
+    expect(screen.getByRole("heading", { name: "Create a bucket" })).toBeInTheDocument();
+    expect(screen.getByText(/served over S3, so your deployments on any provider can use it/)).toBeInTheDocument();
+  });
+
+  it("says a bucket can be used from any provider while providers bid", async () => {
+    const { showStep } = setup({ offersBuckets: true });
+    await userEvent.click(screen.getByRole("radio", { name: /S3 bucket/ }));
+
+    showStep({ kind: "choosing", dseq: DSEQ });
+
+    expect(screen.getByText("Choose the provider to lease data from. Your deployments on any provider can use it.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Lease bucket" })).toBeInTheDocument();
+  });
+
+  it("says only providers serving buckets bid on one once the wait runs out", async () => {
+    const { showStep } = setup({ offersBuckets: true, hasWaited: true });
+    await userEvent.click(screen.getByRole("radio", { name: /S3 bucket/ }));
+
+    showStep({ kind: "choosing", dseq: DSEQ });
+
+    expect(screen.getByText(/Only providers that serve S3 buckets bid on one/)).toBeInTheDocument();
+  });
+
   it("labels the volume's name", () => {
     setup({});
 
@@ -237,7 +315,9 @@ describe(CreateVolumeDialog.name, () => {
     takenNames?: string[];
     leased?: string | undefined;
     hasWaited?: boolean;
+    offersBuckets?: boolean;
   }) {
+    let currentStep: CreateVolumeStep = input.step ?? { kind: "editing" };
     const create = vi.fn(async (_volume: { name: string; sdl: string }) => undefined);
     const lease = vi.fn(async (_provider: string) => ("leased" in input ? input.leased : DSEQ));
     const abandon = vi.fn(async () => undefined);
@@ -250,23 +330,29 @@ describe(CreateVolumeDialog.name, () => {
     const dependencies = {
       ...DEPENDENCIES,
       useHasWaited,
-      useCreateVolume: () => ({ step: input.step ?? { kind: "editing" as const }, bids: input.bids ?? [], create, lease, abandon }),
+      useCreateVolume: () => ({ step: currentStep, bids: input.bids ?? [], create, lease, abandon }),
       useWallet: () => mock<ReturnType<typeof DEPENDENCIES.useWallet>>({ address: OWNER }),
       useProvidersByAddresses,
       PricePerTimeUnit: ({ perBlockValue, denom }: { perBlockValue: number; denom: string }) => <span>{`price ${perBlockValue} ${denom}`}</span>
     };
 
-    render(
+    const dialog = () => (
       <CreateVolumeDialog
         open
         onOpenChange={onOpenChange}
         placement={defaultPlacement({ name: "dcloud" })}
         takenNames={input.takenNames ?? []}
         onCreated={onCreated}
+        offersBuckets={input.offersBuckets}
         dependencies={dependencies as unknown as typeof DEPENDENCIES}
       />
     );
+    const { rerender } = render(dialog());
+    const showStep = (step: CreateVolumeStep) => {
+      currentStep = step;
+      rerender(dialog());
+    };
 
-    return { create, lease, abandon, onCreated, onOpenChange, useProvidersByAddresses, useHasWaited };
+    return { create, lease, abandon, onCreated, onOpenChange, useProvidersByAddresses, useHasWaited, showStep };
   }
 });

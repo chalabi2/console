@@ -3,6 +3,9 @@ import yaml from "js-yaml";
 import type { PlacementType, ServiceType } from "@src/types";
 import { placementProfileOf } from "./sdlGenerator";
 
+/** How deployments reach a volume: mounted on the provider leasing it, or as an S3 bucket from any provider. */
+export type VolumeAccess = "mount" | "bucket";
+
 export interface VolumeDraft {
   name: string;
   size: number;
@@ -12,6 +15,7 @@ export interface VolumeDraft {
   retention?: string;
   placement: PlacementType;
   pricing: ServiceType["pricing"];
+  access?: VolumeAccess;
 }
 
 /** A volume is its own deployment, declaring the one volume and no service, placed like the service that will mount it. */
@@ -22,6 +26,7 @@ export function volumeSdlOf(draft: VolumeDraft): string {
       [draft.name]: {
         size: `${draft.size}${draft.unit}`,
         class: draft.storageClass,
+        ...(draft.access === "bucket" ? { access: "bucket" } : {}),
         lifecycle: draft.retention ? { reclaim: "retain", retention: draft.retention } : { reclaim: "delete" }
       }
     },

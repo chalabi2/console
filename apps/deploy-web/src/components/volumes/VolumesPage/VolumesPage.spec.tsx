@@ -19,6 +19,7 @@ const AVAILABLE: OwnedVolume = {
   dseq: "100",
   sizeBytes: 1_073_741_824,
   storageClass: "beta3",
+  access: "mount",
   state: "available",
   provider: PROVIDER,
   pricePerBlock: { denom: "uact", amount: "1.5" }
@@ -38,6 +39,18 @@ describe(VolumesPage.name, () => {
     expect(within(row).getByText("Meridian Cloud")).toBeInTheDocument();
     expect(within(row).getByText("Available")).toBeInTheDocument();
     expect(PricePerTimeUnit.mock.calls[0][0]).toEqual(expect.objectContaining({ perBlockValue: udenomToDenom("1.5", PRICE_DISPLAY_PRECISION), denom: "uact" }));
+  });
+
+  it("marks a bucket as an S3 bucket", () => {
+    setup({ volumes: [{ ...AVAILABLE, access: "bucket" }] });
+
+    expect(within(screen.getByRole("row", { name: /data/ })).getByText("S3 bucket")).toBeInTheDocument();
+  });
+
+  it("marks no disk as a bucket", () => {
+    setup({ volumes: [AVAILABLE] });
+
+    expect(screen.queryByText("S3 bucket")).not.toBeInTheDocument();
   });
 
   it("looks up the providers holding the volumes, skipping a volume no lease holds", () => {
@@ -144,7 +157,7 @@ describe(VolumesPage.name, () => {
     await userEvent.click(screen.getByRole("button", { name: "Create volume" }));
 
     expect(CreateVolumeDialog.mock.lastCall?.[0]).toEqual(
-      expect.objectContaining({ open: true, takenNames: ["data"], placement: expect.objectContaining({ name: "dcloud" }) })
+      expect.objectContaining({ open: true, takenNames: ["data"], placement: expect.objectContaining({ name: "dcloud" }), offersBuckets: true })
     );
   });
 

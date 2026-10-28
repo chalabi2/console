@@ -16,7 +16,16 @@ import userEvent from "@testing-library/user-event";
 
 const OWNER = "akash1owner";
 const PROVIDER = "akash1provider";
-const FREE: OwnedVolume = { name: "data", owner: OWNER, dseq: "100", sizeBytes: 1_073_741_824, storageClass: "beta3", state: "available", provider: PROVIDER };
+const FREE: OwnedVolume = {
+  name: "data",
+  owner: OWNER,
+  dseq: "100",
+  sizeBytes: 1_073_741_824,
+  storageClass: "beta3",
+  access: "mount",
+  state: "available",
+  provider: PROVIDER
+};
 const MOUNTED: AttachedVolumeType = { name: "data", owner: OWNER, dseq: "100", mount: "/data", isReadOnly: false };
 const EMPTY_ROW: AttachedVolumeType = { name: "", dseq: "", mount: "/data", isReadOnly: false };
 const LOGS: OwnedVolume = { ...FREE, name: "logs", dseq: "101" };
@@ -57,7 +66,8 @@ describe(DedicatedVolumesCard.name, () => {
   it.each([
     { case: "holds no lease yet", volume: { ...FREE, state: "unleased" as const, provider: undefined } },
     { case: "another deployment mounts", volume: { ...FREE, state: "mounted" as const, mountedBy: "200" } },
-    { case: "is closing", volume: { ...FREE, state: "closing" as const } }
+    { case: "is closing", volume: { ...FREE, state: "closing" as const } },
+    { case: "is a bucket", volume: { ...FREE, access: "bucket" as const } }
   ])("does not offer a volume that $case", async ({ volume }) => {
     setup({ volumes: [{ ...MOUNTED, name: "", dseq: "" }], owned: [volume] });
 
@@ -221,6 +231,14 @@ describe(DedicatedVolumesCard.name, () => {
     await userEvent.click(screen.getByRole("button", { name: "Create a volume" }));
 
     expect(CreateVolumeDialog.mock.lastCall?.[0].placement).toEqual(getValues().placements[1]);
+  });
+
+  it("creates only a disk, since it mounts what it creates", async () => {
+    const { CreateVolumeDialog } = setup({ volumes: [EMPTY_ROW] });
+
+    await userEvent.click(screen.getByRole("button", { name: "Create a volume" }));
+
+    expect(CreateVolumeDialog.mock.lastCall?.[0].offersBuckets).toBeFalsy();
   });
 
   it("mounts another volume past every path taken", async () => {

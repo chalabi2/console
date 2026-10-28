@@ -24,6 +24,7 @@ describe("useOwnedVolumes", () => {
           dseq: "100",
           sizeBytes: 1_073_741_824,
           storageClass: "beta3",
+          access: "mount",
           state: "available",
           provider: PROVIDER,
           mountedBy: undefined,
@@ -33,6 +34,18 @@ describe("useOwnedVolumes", () => {
           retention: "604800s"
         }
       ]);
+    });
+
+    it("reads a bucket as a bucket", () => {
+      const [volume] = ownedVolumesOf([buildVolumeDeployment("100", "bucket")], [buildLease({ dseq: "100" })]);
+
+      expect(volume.access).toBe("bucket");
+    });
+
+    it("reads a volume the chain marks as mounted as a disk", () => {
+      const [volume] = ownedVolumesOf([buildVolumeDeployment("100", "mount")], [buildLease({ dseq: "100" })]);
+
+      expect(volume.access).toBe("mount");
     });
 
     it("reads a volume another deployment mounts as mounted by it", () => {
@@ -158,14 +171,14 @@ describe("useOwnedVolumes", () => {
     expect(volumeKeyOf({ dseq: "100" })).toBe("/100");
   });
 
-  function buildVolumeDeployment(dseq: string): DeploymentDto {
+  function buildVolumeDeployment(dseq: string, access?: string): DeploymentDto {
     return deploymentToDto(
       buildRpcDeployment({
         deployment: { id: { owner: OWNER, dseq } },
         groups: [
           {
             group_spec: {
-              volume: { vid: "data", reclaim: "retain", retention: "604800s" },
+              volume: { vid: "data", reclaim: "retain", retention: "604800s", ...(access ? { access } : {}) },
               resources: [
                 {
                   resource: {

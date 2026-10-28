@@ -38,7 +38,7 @@ type Props = {
   dependencies?: typeof DEPENDENCIES;
 };
 
-/** A volume is offered while it holds a lease and nothing else mounts it, since a volume takes one attachment at a time. */
+/** A disk is offered while it holds a lease and nothing else mounts it, since a disk takes one attachment at a time; a bucket is never mounted. */
 export const DedicatedVolumesCard: FC<Props> = ({ serviceIndex, locked = false, dependencies: d = DEPENDENCIES }) => {
   const { control, getValues } = useFormContext<SdlBuilderFormValuesType>();
   const { fields, append, remove, update } = useFieldArray({ control, name: `services.${serviceIndex}.volumes`, keyName: "key" });
@@ -53,7 +53,7 @@ export const DedicatedVolumesCard: FC<Props> = ({ serviceIndex, locked = false, 
   const mountedByOtherServices = new Set(
     (services ?? []).flatMap((service, index) => (index === serviceIndex ? [] : (service.volumes ?? []).map(volume => volumeKeyOf(volume))))
   );
-  const free = ownedVolumes.filter(volume => volume.state === "available" && !mountedByOtherServices.has(volumeKeyOf(volume)));
+  const free = ownedVolumes.filter(volume => volume.state === "available" && volume.access === "mount" && !mountedByOtherServices.has(volumeKeyOf(volume)));
   const providerAddresses = [...new Set(mountedHere.flatMap(volume => ownedVolumes.find(owned => volumeKeyOf(owned) === volumeKeyOf(volume))?.provider ?? []))];
   const { data: providers } = d.useProvidersByAddresses(providerAddresses);
 

@@ -140,7 +140,7 @@ interface DeploymentGroup_v2 {
       volumes?: Array<{ owner: string; dseq: string; gseq: number; name: string }> | null;
     }>;
     /** Present on a volume's own group (AEP-87), which leases storage and runs no workload. */
-    volume?: { vid: string; reclaim?: string; retention?: string } | null;
+    volume?: { vid: string; reclaim?: string; retention?: string; access?: string } | null;
   };
   created_at: string;
 }
@@ -218,7 +218,7 @@ interface DeploymentGroup_v3 {
       volumes?: Array<{ owner: string; dseq: string; gseq: number; name: string }> | null;
     }>;
     /** Present on a volume's own group (AEP-87), which leases storage and runs no workload. */
-    volume?: { vid: string; reclaim?: string; retention?: string } | null;
+    volume?: { vid: string; reclaim?: string; retention?: string; access?: string } | null;
   };
   created_at: string;
 }

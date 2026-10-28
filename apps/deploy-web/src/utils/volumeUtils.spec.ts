@@ -2,7 +2,7 @@ import yaml from "js-yaml";
 import { describe, expect, it } from "vitest";
 
 import type { GroupVolume } from "./volumeUtils";
-import { deploymentVolumeOf, volumeAfterCloseOf, volumeAttachmentSdlOf, volumeClassOf, volumeOf } from "./volumeUtils";
+import { deploymentVolumeOf, isBucketVolume, volumeAfterCloseOf, volumeAttachmentSdlOf, volumeClassOf, volumeOf } from "./volumeUtils";
 
 import { buildRpcDeployment } from "@tests/seeders";
 
@@ -18,6 +18,16 @@ describe("volumeUtils", () => {
       { case: "is unknown", group: undefined }
     ])("finds no volume in a group that $case", ({ group }) => {
       expect(volumeOf(group)).toBeUndefined();
+    });
+  });
+
+  describe(isBucketVolume.name, () => {
+    it("reads a volume served over S3 as a bucket", () => {
+      expect(isBucketVolume({ access: "bucket" })).toBe(true);
+    });
+
+    it.each([{ access: "mount" }, {}, undefined])("reads %o as no bucket", volume => {
+      expect(isBucketVolume(volume)).toBe(false);
     });
   });
 

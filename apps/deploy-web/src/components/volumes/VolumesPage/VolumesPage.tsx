@@ -49,8 +49,8 @@ export const VolumesPage: FC<{ dependencies?: typeof DEPENDENCIES }> = ({ depend
 
       <div className="container flex flex-col gap-4 px-4 py-6 sm:px-6">
         <p className="text-sm text-muted-foreground">
-          A volume is storage leased on its own from one provider. Its data outlives the deployments that mount it, and whatever mounts it runs on that
-          provider.
+          A volume is storage leased on its own from one provider, so its data outlives your deployments. A disk is mounted by deployments on that provider; a
+          bucket is served over S3 to your deployments on any provider.
         </p>
 
         {isError && (
@@ -110,6 +110,7 @@ export const VolumesPage: FC<{ dependencies?: typeof DEPENDENCIES }> = ({ depend
           placement={STANDALONE_PLACEMENT}
           takenNames={volumes.map(volume => volume.name)}
           onCreated={refetch}
+          offersBuckets
         />
       )}
     </d.Layout>
@@ -122,9 +123,12 @@ const VolumeRow: FC<{ volume: OwnedVolume; provider?: ApiProviderList; dependenc
   return (
     <TableRow>
       <TableCell>
-        <Link href={UrlService.deploymentDetails(volume.dseq)} className="font-medium">
-          {volume.name}
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link href={UrlService.deploymentDetails(volume.dseq)} className="font-medium">
+            {volume.name}
+          </Link>
+          {volume.access === "bucket" && <Badge variant="outline">S3 bucket</Badge>}
+        </div>
         <div className="font-mono text-xs text-muted-foreground">{volume.dseq}</div>
       </TableCell>
       <TableCell>

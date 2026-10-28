@@ -40,6 +40,22 @@ describe(volumeSdlOf.name, () => {
     expect(validateGeneratedSdl(volumeSdlOf(buildDraft({})))).toEqual([]);
   });
 
+  it("declares a bucket's access", () => {
+    const sdl = yaml.load(volumeSdlOf(buildDraft({ access: "bucket" }))) as Record<string, any>;
+
+    expect(sdl.volumes.data).toEqual({ size: "10Gi", class: "beta3", access: "bucket", lifecycle: { reclaim: "retain", retention: "168h" } });
+  });
+
+  it("declares no access for a mounted volume, which is the default", () => {
+    const sdl = yaml.load(volumeSdlOf(buildDraft({ access: "mount" }))) as Record<string, any>;
+
+    expect(sdl.volumes.data).not.toHaveProperty("access");
+  });
+
+  it("writes a bucket sdl the chain validator accepts", () => {
+    expect(validateGeneratedSdl(volumeSdlOf(buildDraft({ access: "bucket" })))).toEqual([]);
+  });
+
   function buildDraft(input: Partial<VolumeDraft>): VolumeDraft {
     return {
       name: "data",

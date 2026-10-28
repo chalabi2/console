@@ -3,7 +3,8 @@ import { useMemo } from "react";
 import { useWallet } from "@src/context/WalletProvider";
 import type { DeploymentDto, LeaseDto } from "@src/types/deployment";
 import { getReclamationDeadline, isClosingVolume, isReclaiming } from "@src/utils/reclamationUtils";
-import { volumeClassOf, volumeOf } from "@src/utils/volumeUtils";
+import type { VolumeAccess } from "@src/utils/sdl/volumeSdl";
+import { isBucketVolume, volumeClassOf, volumeOf } from "@src/utils/volumeUtils";
 import { useDeploymentList } from "./useDeploymentQuery";
 import { useAllLeases } from "./useLeaseQuery";
 
@@ -24,6 +25,7 @@ export interface OwnedVolume {
   dseq: string;
   sizeBytes: number;
   storageClass?: string;
+  access: VolumeAccess;
   state: VolumeState;
   /** The provider holding the volume's lease, which is the only one that can run a service mounting it. */
   provider?: string;
@@ -77,6 +79,7 @@ export function ownedVolumesOf(deployments: DeploymentDto[], leases: LeaseDto[])
         dseq: deployment.dseq,
         sizeBytes: Number(group.group_spec.resources[0]?.resource.storage[0]?.quantity.val ?? 0),
         storageClass: volumeClassOf(group),
+        access: isBucketVolume(volume) ? "bucket" : "mount",
         state: volumeStateOf(lease, mounting),
         provider: lease?.provider,
         mountedBy: mounting,
