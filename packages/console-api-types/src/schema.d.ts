@@ -2377,6 +2377,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/deployments/{dseq}/move": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Move a volume to another provider
+     * @description Closes the volume's lease to move it rather than end it. The lease is kept through its reclamation window, while deployments mounting the volume keep running. Then it closes, those deployments are detached, and the volume is listed for new bids. Lease one of them to finish the move: the new provider copies the volume's data from the old one before anything can mount it. A bucket cannot be moved, because its objects do not move with it.
+     */
+    post: operations["moveVolume"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/deposit-deployment": {
     parameters: {
       query?: never;
@@ -2641,6 +2661,7 @@ export interface paths {
                     }[];
                     volume?: {
                       vid: string;
+                      access?: string;
                       reclaim: string;
                       retention: string;
                       max_attachments: number;
@@ -11064,6 +11085,7 @@ export interface operations {
                     }[];
                     volume?: {
                       vid: string;
+                      access?: string;
                       reclaim: string;
                       retention: string;
                       max_attachments: number;
@@ -11344,6 +11366,80 @@ export interface operations {
       };
       /** @description No resize of this deployment waits for its provider */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            error: string;
+            message: string;
+            code: string;
+            type: string;
+          };
+        };
+      };
+    };
+  };
+  moveVolume: {
+    parameters: {
+      query?: never;
+      header?: {
+        /** @description Id or slug of the organization the request runs in. Defaults to the organization used last, or the caller's personal one. Answers 403 `organization_forbidden` when the caller is not a member, and 400 `organization_mismatch` when it names another organization than the API key's. */
+        "x-organization-id"?: components["parameters"]["OrganizationIdHeader"];
+        /** @description Id of a project of the active organization to limit the request to. Answers 403 `project_forbidden` when the caller cannot reach the project, or the API key is limited to another one. */
+        "x-project-id"?: components["parameters"]["ProjectIdHeader"];
+      };
+      path: {
+        /** @description Sequence number of the volume's deployment */
+        dseq: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The volume's lease is closing to move it */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: {
+              success: boolean;
+            };
+          };
+        };
+      };
+      /** @description The deployment is not a volume, or is a bucket */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            error: string;
+            message: string;
+            code: string;
+            type: string;
+          };
+        };
+      };
+      /** @description With `code` `project_forbidden`, the deployment is filed in a project the caller cannot change */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            error: string;
+            message: string;
+            code: string;
+            type: string;
+          };
+        };
+      };
+      /** @description The volume has no active lease: it is already moving, closing, or unleased */
+      409: {
         headers: {
           [name: string]: unknown;
         };

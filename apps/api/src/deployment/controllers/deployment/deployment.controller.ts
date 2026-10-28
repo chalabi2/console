@@ -34,6 +34,7 @@ import {
   ListWithResourcesParams,
   ListWithResourcesQuery,
   ListWithResourcesResponse,
+  MoveVolumeResponse,
   PatchDeploymentRequest,
   PatchDeploymentResponse,
   UpdateDeploymentRequest,
@@ -43,6 +44,7 @@ import { DeploymentListService } from "@src/deployment/services/deployment-list/
 import { DeploymentReaderService } from "@src/deployment/services/deployment-reader/deployment-reader.service";
 import { DeploymentWriterService } from "@src/deployment/services/deployment-writer/deployment-writer.service";
 import { SpendRateService } from "@src/deployment/services/spend-rate/spend-rate.service";
+import { VolumeMoveService } from "@src/deployment/services/volume-move/volume-move.service";
 
 @singleton()
 export class DeploymentController {
@@ -52,7 +54,8 @@ export class DeploymentController {
     private readonly authService: AuthService,
     private readonly featureFlagsService: FeatureFlagsService,
     private readonly spendRateService: SpendRateService,
-    private readonly deploymentListService: DeploymentListService
+    private readonly deploymentListService: DeploymentListService,
+    private readonly volumeMoveService: VolumeMoveService
   ) {}
 
   @Protected([
@@ -136,6 +139,12 @@ export class DeploymentController {
   @Protected([{ action: "sign", subject: "UserWallet" }])
   async cancelResize(dseq: string): Promise<CancelDeploymentResizeResponse> {
     await this.deploymentWriterService.cancelResizeByUserIdAndDseq(this.authService.currentUser.id, dseq);
+    return { data: { success: true } };
+  }
+
+  @Protected([{ action: "sign", subject: "UserWallet" }])
+  async moveVolume(dseq: string): Promise<MoveVolumeResponse> {
+    await this.volumeMoveService.moveByUserIdAndDseq(this.authService.currentUser.id, dseq);
     return { data: { success: true } };
   }
 

@@ -29,6 +29,7 @@ const VolumeRefSchema = z.object({
 /** Present on a volume's own group only; a compute group reports it as null, and a chain without volumes leaves it out. */
 const VolumePolicySchema = z.object({
   vid: z.string(),
+  access: z.string().optional(),
   reclaim: z.string(),
   retention: z.string(),
   max_attachments: z.number(),

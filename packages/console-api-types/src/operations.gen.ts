@@ -197,6 +197,7 @@ export const operations = {
       queryParams: [],
       hasBody: false
     },
+    moveVolume: { path: "/v1/deployments/{dseq}/move", method: "post", operationId: "moveVolume", pathParams: ["dseq"], queryParams: [], hasBody: false },
     depositDeployment: { path: "/v1/deposit-deployment", method: "post", operationId: "depositDeployment", pathParams: [], queryParams: [], hasBody: true },
     createDeploymentDefinition: {
       path: "/v1/deployments/{dseq}/definition",

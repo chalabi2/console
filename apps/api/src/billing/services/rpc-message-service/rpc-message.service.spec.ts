@@ -1,6 +1,6 @@
 import { DeploymentReclamation, MsgMintACT } from "@akashnetwork/chain-sdk/private-types/akash.v1";
 import { ResourceUnit } from "@akashnetwork/chain-sdk/private-types/akash.v1beta4";
-import { MsgCancelLeaseResize, MsgResizeLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
+import { MsgCancelLeaseResize, MsgCloseLease, MsgResizeLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
 import { describe, expect, it } from "vitest";
 import { mock } from "vitest-mock-extended";
 
@@ -80,6 +80,17 @@ describe(RpcMessageService.name, () => {
       expect(service.getCancelLeaseResizeMsg(LEASE)).toEqual({
         typeUrl: `/${MsgCancelLeaseResize.$type}`,
         value: MsgCancelLeaseResize.fromPartial({ id: { ...LEASE, dseq: 1234n } })
+      });
+    });
+  });
+
+  describe("getCloseLeaseMsg", () => {
+    it("closes the lease it names", () => {
+      const { service } = setup();
+
+      expect(service.getCloseLeaseMsg(LEASE)).toEqual({
+        typeUrl: `/${MsgCloseLease.$type}`,
+        value: MsgCloseLease.fromPartial({ id: { ...LEASE, dseq: 1234n } })
       });
     });
   });

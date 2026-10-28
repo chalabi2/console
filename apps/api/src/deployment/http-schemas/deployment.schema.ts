@@ -464,6 +464,16 @@ export const CancelDeploymentResizeResponseSchema = z.object({
   })
 });
 
+export const MoveVolumeParamsSchema = z.object({
+  dseq: DseqSchema.describe("Sequence number of the volume's deployment")
+});
+
+export const MoveVolumeResponseSchema = z.object({
+  data: z.object({
+    success: z.boolean()
+  })
+});
+
 export const PatchDeploymentParamsSchema = z.object({
   dseq: DseqSchema.describe("Deployment sequence number")
 });
@@ -791,6 +801,7 @@ export type UpdateDeploymentRequest = z.infer<typeof UpdateDeploymentRequestSche
 export type PatchService = z.infer<typeof PatchServiceSchema>;
 export type PatchVolume = z.infer<typeof PatchVolumeSchema>;
 export type CancelDeploymentResizeResponse = z.infer<typeof CancelDeploymentResizeResponseSchema>;
+export type MoveVolumeResponse = z.infer<typeof MoveVolumeResponseSchema>;
 export type PatchDeploymentRequest = z.infer<typeof PatchDeploymentRequestSchema>;
 export type PatchDeploymentResponse = z.infer<typeof PatchDeploymentResponseSchema>;
 export type PatchDeploymentQuery = z.infer<typeof PatchDeploymentQuerySchema>;

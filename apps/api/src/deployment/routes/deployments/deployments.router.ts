@@ -37,6 +37,8 @@ import {
   ListWithResourcesParamsSchema,
   ListWithResourcesQuerySchema,
   ListWithResourcesResponseSchema,
+  MoveVolumeParamsSchema,
+  MoveVolumeResponseSchema,
   PatchDeploymentAcceptedResponseSchema,
   PatchDeploymentParamsSchema,
   PatchDeploymentQuerySchema,
@@ -312,6 +314,58 @@ const cancelResizeRoute = createRoute({
 deploymentsRouter.openapi(cancelResizeRoute, async function routeCancelDeploymentResize(c) {
   const { dseq } = c.req.valid("param");
   return c.json(await container.resolve(DeploymentController).cancelResize(dseq), 200);
+});
+
+const moveVolumeRoute = createRoute({
+  method: "post",
+  path: "/v1/deployments/{dseq}/move",
+  summary: "Move a volume to another provider",
+  description:
+    "Closes the volume's lease to move it rather than end it. The lease is kept through its reclamation window, while deployments mounting the volume keep running. Then it closes, those deployments are detached, and the volume is listed for new bids. Lease one of them to finish the move: the new provider copies the volume's data from the old one before anything can mount it. A bucket cannot be moved, because its objects do not move with it.",
+  operationId: "moveVolume",
+  tags: ["Deployments"],
+  security: SECURITY_BEARER_OR_API_KEY,
+  request: {
+    params: MoveVolumeParamsSchema
+  },
+  responses: {
+    200: {
+      description: "The volume's lease is closing to move it",
+      content: {
+        "application/json": {
+          schema: MoveVolumeResponseSchema
+        }
+      }
+    },
+    400: {
+      description: "The deployment is not a volume, or is a bucket",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    403: {
+      description: PROJECT_FORBIDDEN_DESCRIPTION,
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    409: {
+      description: "The volume has no active lease: it is already moving, closing, or unleased",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    }
+  }
+});
+deploymentsRouter.openapi(moveVolumeRoute, async function routeMoveVolume(c) {
+  const { dseq } = c.req.valid("param");
+  return c.json(await container.resolve(DeploymentController).moveVolume(dseq), 200);
 });
 
 const depositRoute = createRoute({

@@ -15,7 +15,7 @@ import {
   MsgUpdateDeployment,
   type ResourceUnit
 } from "@akashnetwork/chain-sdk/private-types/akash.v1beta4";
-import { MsgCancelLeaseResize, MsgCreateLease, MsgResizeLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
+import { MsgCancelLeaseResize, MsgCloseLease, MsgCreateLease, MsgResizeLease } from "@akashnetwork/chain-sdk/private-types/akash.v1beta5";
 import { BasicAllowance, MsgExec, MsgGrant, MsgGrantAllowance, MsgRevoke, MsgRevokeAllowance } from "@akashnetwork/chain-sdk/private-types/cosmos.v1beta1";
 import addYears from "date-fns/addYears";
 import { singleton } from "tsyringe";
@@ -229,6 +229,13 @@ export class RpcMessageService {
     return {
       typeUrl: `/${MsgCancelLeaseResize.$type}`,
       value: MsgCancelLeaseResize.fromPartial({ id: lease })
+    };
+  }
+
+  getCloseLeaseMsg(lease: LeaseIdMsgOptions) {
+    return {
+      typeUrl: `/${MsgCloseLease.$type}`,
+      value: MsgCloseLease.fromPartial({ id: lease })
     };
   }
 
