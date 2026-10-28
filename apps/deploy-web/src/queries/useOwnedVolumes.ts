@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import { useWallet } from "@src/context/WalletProvider";
 import type { DeploymentDto, LeaseDto } from "@src/types/deployment";
@@ -12,6 +12,9 @@ export const DEPENDENCIES = { useWallet, useDeploymentList, useAllLeases };
 
 /** A reclaiming lease still holds the volume's data, so it counts alongside an active one. */
 const LIVE_LEASE_STATES = ["active", "reclaiming"] as const;
+
+/** A reclaiming lease ends on its own once its window passes, so the leases are read again until none is left reclaiming. */
+export const RECLAIMING_POLL_INTERVAL = 10_000;
 
 /**
  * `closing` is a close its owner asked for, `moving` a move its owner started and `reclaiming` one the provider
@@ -49,8 +52,22 @@ export function useOwnedVolumes(dependencies: typeof DEPENDENCIES = DEPENDENCIES
 } {
   const { address } = dependencies.useWallet();
   const deployments = dependencies.useDeploymentList(address, {}, "active");
-  const leases = dependencies.useAllLeases(address, { state: LIVE_LEASE_STATES });
+  const leases = dependencies.useAllLeases(address, {
+    state: LIVE_LEASE_STATES,
+    refetchInterval: query => (hasReclaimingLease(query.state.data) ? RECLAIMING_POLL_INTERVAL : false)
+  });
   const volumes = useMemo(() => ownedVolumesOf(deployments.data ?? [], leases.data ?? []), [deployments.data, leases.data]);
+  const isAnyLeaseReclaiming = hasReclaimingLease(leases.data);
+  const wasAnyLeaseReclaiming = useRef(isAnyLeaseReclaiming);
+  const refetchDeployments = deployments.refetch;
+
+  useEffect(
+    function readDeploymentsAgainOnceReclaimingEnds() {
+      if (wasAnyLeaseReclaiming.current && !isAnyLeaseReclaiming) refetchDeployments();
+      wasAnyLeaseReclaiming.current = isAnyLeaseReclaiming;
+    },
+    [isAnyLeaseReclaiming, refetchDeployments]
+  );
 
   return {
     volumes,
@@ -94,6 +111,10 @@ export function ownedVolumesOf(deployments: DeploymentDto[], leases: LeaseDto[])
       }
     ];
   });
+}
+
+function hasReclaimingLease(leases: LeaseDto[] | null | undefined): boolean {
+  return !!leases?.some(isReclaiming);
 }
 
 function volumeStateOf(lease: LeaseDto | undefined, mountedBy: string | undefined): VolumeState {

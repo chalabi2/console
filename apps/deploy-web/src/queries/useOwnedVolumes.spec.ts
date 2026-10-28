@@ -4,7 +4,7 @@ import { mock } from "vitest-mock-extended";
 import type { DeploymentDto, LeaseDto } from "@src/types/deployment";
 import { deploymentToDto } from "@src/utils/deploymentDetailUtils";
 import type { DEPENDENCIES } from "./useOwnedVolumes";
-import { ownedVolumesOf, useOwnedVolumes, volumeKeyOf } from "./useOwnedVolumes";
+import { ownedVolumesOf, RECLAIMING_POLL_INTERVAL, useOwnedVolumes, volumeKeyOf } from "./useOwnedVolumes";
 
 import { act, renderHook } from "@testing-library/react";
 import { buildRpcDeployment } from "@tests/seeders";
@@ -108,7 +108,48 @@ describe("useOwnedVolumes", () => {
       const { useDeploymentList, useAllLeases } = setup({});
 
       expect(useDeploymentList).toHaveBeenCalledWith(OWNER, {}, "active");
-      expect(useAllLeases).toHaveBeenCalledWith(OWNER, { state: ["active", "reclaiming"] });
+      expect(useAllLeases).toHaveBeenCalledWith(OWNER, { state: ["active", "reclaiming"], refetchInterval: expect.any(Function) });
+    });
+
+    it.each([
+      {
+        case: "while one of them is reclaiming",
+        leases: [buildLease({ dseq: "100" }), buildLease({ dseq: "200", state: "reclaiming" })],
+        interval: RECLAIMING_POLL_INTERVAL
+      },
+      { case: "not once none is reclaiming", leases: [buildLease({ dseq: "100" })], interval: false },
+      { case: "not before they load", leases: undefined, interval: false }
+    ])("reads the leases again $case", ({ leases, interval }) => {
+      const { leasePollIntervalFor } = setup({});
+
+      expect(leasePollIntervalFor(leases)).toBe(interval);
+    });
+
+    it("reads the deployments again once the last reclaiming lease ends, since a finished close takes its deployment with it", () => {
+      const { deploymentList, leaseList, rerender } = setup({ leases: [buildLease({ dseq: "100", state: "reclaiming" })] });
+
+      leaseList.data = [];
+      rerender();
+
+      expect(deploymentList.refetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("leaves the deployments alone while a lease is still reclaiming", () => {
+      const { deploymentList, leaseList, rerender } = setup({ leases: [buildLease({ dseq: "100", state: "reclaiming" })] });
+
+      leaseList.data = [buildLease({ dseq: "100", state: "reclaiming" }), buildLease({ dseq: "200" })];
+      rerender();
+
+      expect(deploymentList.refetch).not.toHaveBeenCalled();
+    });
+
+    it("leaves the deployments alone when the leases load with none reclaiming", () => {
+      const { deploymentList, leaseList, rerender } = setup({});
+
+      leaseList.data = [buildLease({ dseq: "100" })];
+      rerender();
+
+      expect(deploymentList.refetch).not.toHaveBeenCalled();
     });
 
     it("lists the volumes once both have loaded", () => {
@@ -163,16 +204,20 @@ describe("useOwnedVolumes", () => {
         refetch: vi.fn()
       });
       const useDeploymentList = vi.fn(() => deploymentList);
-      const useAllLeases = vi.fn(() => leaseList);
+      const useAllLeases = vi.fn((..._args: Parameters<typeof DEPENDENCIES.useAllLeases>) => leaseList);
       const dependencies = {
         useWallet: () => mock<ReturnType<typeof DEPENDENCIES.useWallet>>({ address: OWNER }),
         useDeploymentList: useDeploymentList as unknown as typeof DEPENDENCIES.useDeploymentList,
         useAllLeases: useAllLeases as unknown as typeof DEPENDENCIES.useAllLeases
       };
 
-      const { result } = renderHook(() => useOwnedVolumes(dependencies));
+      const { result, rerender } = renderHook(() => useOwnedVolumes(dependencies));
+      const leasePollIntervalFor = (leases: LeaseDto[] | undefined) => {
+        const refetchInterval = useAllLeases.mock.calls[0][1]?.refetchInterval as (query: { state: { data?: LeaseDto[] } }) => number | false;
+        return refetchInterval({ state: { data: leases } });
+      };
 
-      return { result, useDeploymentList, useAllLeases, deploymentList, leaseList };
+      return { result, rerender, useDeploymentList, useAllLeases, deploymentList, leaseList, leasePollIntervalFor };
     }
   });
 
